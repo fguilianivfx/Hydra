@@ -365,13 +365,27 @@ def build_graph(assets, scenes, binds, input_name):
             edge_set.add((dep_key, start_key))
     result.edges = sorted(edge_set)
 
-    # Statut / couleur + info « dernière version ».
+    # Inputs (assets importés) de chaque nœud, pour la coloration par
+    # propagation. asset_edges = (enfant, parent) : l'enfant importe le
+    # parent, donc le parent est un input du nœud producteur de l'enfant.
+    node_inputs = defaultdict(set)
+    for child_aid, parent_aid in asset_edges:
+        node_inputs[_asset_scene_key(assets[child_aid])].add(parent_aid)
+    for aid in s0_dep_assets:                      # inputs directs de S0
+        node_inputs[start_key].add(aid)
+
+    # Badge « dernière version » (basé sur les versions d'assets exportés).
     for node in result.nodes.values():
-        _compute_status(node, scene_stream_max, asset_stream_max)
+        _compute_freshness_badge(node, scene_stream_max, asset_stream_max)
         node.display_name = canonical_name(
             node.project or prefix, node.entity_name, node.task_name,
             node.av_name, node.version,
         )
+
+    # Statut par propagation : un nœud est vert seulement si tous ses inputs
+    # sont à jour (importés à la dernière version exportée de l'asset) ET si
+    # tous les nœuds produisant ces inputs sont eux-mêmes verts.
+    _propagate_status(result, node_inputs, assets, asset_stream_max)
 
     _assign_layout(result)
 
@@ -383,38 +397,69 @@ def build_graph(assets, scenes, binds, input_name):
     return result
 
 
-def _compute_status(node, scene_stream_max, asset_stream_max):
-    """Détermine node.status, node.latest_version, node.is_latest."""
-    # Dernière version de la scène (pour l'affichage et la compo).
-    scene_stream = (node.project, node.entity_name, node.task_name,
-                    node.av_name)
-    scene_latest = scene_stream_max.get(scene_stream)
-    if scene_latest is None:
-        scene_latest = node.version
-    node.latest_version = scene_latest
-    node.is_latest = (node.version is None or scene_latest is None
-                      or node.version >= scene_latest)
+def _compute_freshness_badge(node, scene_stream_max, asset_stream_max):
+    """Renseigne node.latest_version / node.is_latest pour l'affichage.
 
+    La « dernière version » est celle du/des asset(s) exporté(s) par la scène
+    (pas la dernière version de la scène). Pour une scène sans output suivi
+    (la compo), on retombe sur le flux de scène, faute d'asset à comparer.
+    """
     if node.node_names:
-        # Scène à outputs : rouge si AU MOINS un output est supplanté par
-        # une version plus récente du MÊME node (test au niveau output).
-        stale = False
-        if node.version is not None:
-            for name in node.node_names:
-                stream = (node.project, node.entity_name, node.task_name,
-                          node.av_name, name)
-                latest = asset_stream_max.get(stream)
-                if latest is not None and node.version < latest:
-                    stale = True
-                    break
-        node.status = "stale" if stale else "ok"
+        maxes = []
+        for name in node.node_names:
+            m = asset_stream_max.get(
+                (node.project, node.entity_name, node.task_name,
+                 node.av_name, name))
+            if m is not None:
+                maxes.append(m)
+        node.latest_version = max(maxes) if maxes else node.version
     else:
-        # Scène sans output suivi (la compo) : test au niveau du flux scène.
-        if (node.version is not None and scene_latest is not None
-                and node.version < scene_latest):
-            node.status = "stale"
-        else:
-            node.status = "ok"
+        node.latest_version = scene_stream_max.get(
+            (node.project, node.entity_name, node.task_name, node.av_name),
+            node.version)
+    node.is_latest = (node.version is None or node.latest_version is None
+                      or node.version >= node.latest_version)
+
+
+def _input_is_stale(asset, asset_stream_max):
+    """Vrai si cet asset importé n'est pas à sa dernière version exportée."""
+    if asset is None or asset["version"] is None:
+        return False
+    stream = (asset["project"], asset["entity_name"], asset["task_name"],
+              asset["av_name"], asset["node_name"])
+    latest = asset_stream_max.get(stream)
+    return latest is not None and asset["version"] < latest
+
+
+def _propagate_status(result, node_inputs, assets, asset_stream_max):
+    """Coloration par propagation.
+
+    Graine : tout nœud important au moins un asset supplanté (comparé à la
+    dernière version exportée de cet asset). La couleur rouge se propage
+    ensuite vers l'aval (parent -> enfant) : un nœud construit sur un input
+    périmé — même indirectement — est périmé lui aussi.
+    """
+    red = set()
+    for key, node in result.nodes.items():
+        for pid in node_inputs.get(key, ()):
+            if _input_is_stale(assets.get(pid), asset_stream_max):
+                red.add(key)
+                break
+
+    children = defaultdict(list)
+    for top_key, bottom_key in result.edges:
+        children[top_key].append(bottom_key)
+
+    stack = list(red)
+    while stack:
+        key = stack.pop()
+        for child in children.get(key, ()):
+            if child not in red:
+                red.add(child)
+                stack.append(child)
+
+    for key, node in result.nodes.items():
+        node.status = "stale" if key in red else "ok"
 
 
 # ---------------------------------------------------------------------------

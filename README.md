@@ -8,8 +8,9 @@ scènes dont elle dépend, coloré selon leur fraîcheur.
   la liste de ses *nodes* (outputs) regroupés en dessous ;
 * une **ligne par type de tâche**, les sources en haut et le compositing en
   bas (le flux descend) ;
-* **vert** = scène à jour · **rouge** = au moins un output supplanté par une
-  version plus récente ;
+* **vert** = tous les inputs à jour · **rouge** = au moins un input importé
+  n'est pas à sa dernière version exportée, ou un ancêtre l'est
+  (**coloration par propagation**) ;
 * nœuds **déplaçables horizontalement** (le Y reste verrouillé sur la ligne
   de la tâche) ; **survol** = mise en évidence des dépendances directes ;
   **molette** = zoom ; **bouton du milieu** = déplacement (pan).
@@ -146,17 +147,28 @@ Trois tables comptent : `assets`, `scenes`, `binds`.
 > La table `assets_parents` est **ignorée** (cache partiel/incohérent) : toute
 > la récursion passe par `scenes` + `binds`.
 
-**Couleur d'un nœud** :
+**Couleur d'un nœud — par propagation** :
 
-* scène **à outputs** → **rouge** si au moins un de ses outputs est supplanté
-  (il existe une version plus récente du *même* node sur son stream) ; sinon
-  vert. Le test est fait **au niveau output**, pas au niveau version max de la
-  scène (une `v22` ne paraît pas périmée juste parce qu'une `v23` a republié
-  un *autre* node) ;
-* scène **sans output suivi** (la compo) → rouge si sa version est inférieure
-  à la dernière version connue de son stream de scène.
+Un nœud reste **vert** seulement si **tous ses inputs sont à jour** ; sinon il
+est **rouge**. Un *input* est un asset importé (via un bind actif) : il est « à
+jour » si sa version est la **dernière version exportée de cet asset**
+(comparaison au niveau de l'asset, **pas** de la version de scène).
 
-Chaque nœud indique aussi s'il n'est pas la dernière version
+La couleur se **propage vers l'aval** : un nœud construit — même indirectement
+— sur un input périmé devient rouge lui aussi.
+
+* **rouge** si le nœud importe au moins un asset supplanté (une version plus
+  récente de ce même asset existe), **ou** si l'un de ses ancêtres (amont) est
+  rouge ;
+* **vert** sinon (un nœud sans input, à la source du graphe, est vert).
+
+> Conséquence : le nœud à l'origine d'une republication (ex. un `modeling` dont
+> un `v007` existe alors que le graphe tire un `v005`) peut rester vert — ses
+> propres inputs sont sains — tandis que **tout ce qui l'importe** passe au
+> rouge. Le badge « ⚠ dernière : v007 » signale néanmoins qu'une version plus
+> récente existe.
+
+Chaque nœud indique en effet s'il n'est pas la dernière version exportée
 (« ⚠ dernière : v020 »).
 
 ---
