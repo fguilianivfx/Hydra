@@ -140,7 +140,8 @@ class GraphResult:
     """Résultat complet prêt à afficher."""
 
     __slots__ = ("nodes", "edges", "start_key", "row_tasks", "row_levels",
-                 "separator_after_row", "stats")
+                 "separator_after_row", "stats",
+                 "edge_assets", "edge_details", "stale_asset_ids")
 
     def __init__(self):
         self.nodes = {}            # key -> SceneNode
@@ -150,6 +151,12 @@ class GraphResult:
         self.row_levels = {}       # row_index -> 'asset' | 'shot' | 'other'
         self.separator_after_row = None  # ligne après laquelle placer le trait
         self.stats = {}
+        # Données par arête : assets qui transitent par le lien, leur détail
+        # d'affichage, et l'ensemble des assets périmés (pour recalculer les
+        # statuts quand des liens sont désactivés).
+        self.edge_assets = {}      # (top, bottom) -> frozenset[asset_id]
+        self.edge_details = {}     # (top, bottom) -> [(label, version, latest)]
+        self.stale_asset_ids = frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -370,8 +377,9 @@ def build_graph(assets, scenes, binds, input_name):
         node.node_names = sorted(n for n in names if n)
 
     # Arêtes scène -> scène (parent en haut, enfant en bas), dédupliquées,
-    # sans self-loop.
-    edge_set = set()
+    # sans self-loop. On mémorise aussi les assets qui transitent par chaque
+    # lien (l'enfant importe ces assets du parent).
+    edge_assets = defaultdict(set)
     for child_aid, parent_aid in asset_edges:
         child_key = _asset_scene_key(assets[child_aid])
         parent_key = _asset_scene_key(assets[parent_aid])
@@ -379,23 +387,22 @@ def build_graph(assets, scenes, binds, input_name):
             continue
         ensure_node(child_key)
         ensure_node(parent_key)
-        edge_set.add((parent_key, child_key))
+        edge_assets[(parent_key, child_key)].add(parent_aid)
     # Arêtes de S0 vers les scènes de ses dépendances directes.
     for aid in s0_dep_assets:
         dep_key = _asset_scene_key(assets[aid])
         if dep_key != start_key:
             ensure_node(dep_key)
-            edge_set.add((dep_key, start_key))
-    result.edges = sorted(edge_set)
+            edge_assets[(dep_key, start_key)].add(aid)
+    result.edges = sorted(edge_assets)
+    result.edge_assets = {edge: frozenset(aids)
+                          for edge, aids in edge_assets.items()}
 
     # Inputs (assets importés) de chaque nœud, pour la coloration par
-    # propagation. asset_edges = (enfant, parent) : l'enfant importe le
-    # parent, donc le parent est un input du nœud producteur de l'enfant.
+    # propagation : union des assets arrivant par ses liens entrants.
     node_inputs = defaultdict(set)
-    for child_aid, parent_aid in asset_edges:
-        node_inputs[_asset_scene_key(assets[child_aid])].add(parent_aid)
-    for aid in s0_dep_assets:                      # inputs directs de S0
-        node_inputs[start_key].add(aid)
+    for (_top, bottom), aids in edge_assets.items():
+        node_inputs[bottom] |= aids
 
     # Détails par output + inputs + graphiste(s), et titre (nom de table).
     for node in result.nodes.values():
@@ -405,11 +412,22 @@ def build_graph(assets, scenes, binds, input_name):
         _fill_scene_meta(node, scenes_by_iv, scenes)
         node.display_name = _display_title(node, prefix)
 
+    # Détail des assets transitant par chaque lien (panneau de sélection).
+    result.edge_details = {
+        edge: _asset_details(aids, assets, asset_stream_max)
+        for edge, aids in result.edge_assets.items()
+    }
+    # Assets périmés : suffit pour recalculer les statuts (pas besoin de
+    # regarder à nouveau les versions ensuite).
+    result.stale_asset_ids = frozenset(
+        aid for aid in seen_assets
+        if _input_is_stale(assets.get(aid), asset_stream_max))
+
     # Statut par propagation à trois états :
     #   stale (rouge)     = importe au moins un asset supplanté ;
-    #   inherited (orange)= inputs à jour mais un ancêtre est obsolète ;
+    #   inherited (jaune) = inputs à jour mais un ancêtre est obsolète ;
     #   ok (vert)         = à jour et aucun ancêtre obsolète.
-    _propagate_status(result, node_inputs, assets, asset_stream_max)
+    recompute_status(result)
 
     _assign_layout(result)
 
@@ -542,27 +560,48 @@ def _input_is_stale(asset, asset_stream_max):
     return latest is not None and asset["version"] < latest
 
 
-def _propagate_status(result, node_inputs, assets, asset_stream_max):
-    """Coloration par propagation à trois états.
+def _asset_details(asset_ids, assets, asset_stream_max):
+    """[(label, version, latest_version)] trié, pour un ensemble d'assets."""
+    rows = set()
+    for aid in asset_ids:
+        a = assets.get(aid)
+        if a is None:
+            continue
+        stream = (a["project"], a["entity_name"], a["task_name"],
+                  a["av_name"], a["node_name"])
+        rows.add((_input_label(a), a["version"],
+                  asset_stream_max.get(stream, a["version"])))
+    return sorted(rows, key=lambda t: t[0])
+
+
+def recompute_status(result, disabled_edges=()):
+    """(Re)calcule le statut de chaque nœud, à trois états.
 
     * ``stale`` (rouge) : le nœud importe au moins un asset supplanté (comparé
       à la dernière version exportée de cet asset) ;
-    * ``inherited`` (orange) : ses inputs directs sont à jour, mais un de ses
+    * ``inherited`` (jaune) : ses inputs directs sont à jour, mais un de ses
       ancêtres (amont) est obsolète — obsolète par héritage uniquement ;
     * ``ok`` (vert) : à jour et aucun ancêtre obsolète.
+
+    ``disabled_edges`` : liens temporairement désactivés (in-memory), ignorés
+    aussi bien pour les inputs directs que pour la propagation. Rien n'est
+    écrit en base : seuls les statuts en mémoire changent.
     """
+    disabled = set(disabled_edges)
+    stale_assets = result.stale_asset_ids
+
+    # Inputs actifs par nœud + arêtes actives.
     direct_stale = set()
-    for key in result.nodes:
-        for pid in node_inputs.get(key, ()):
-            if _input_is_stale(assets.get(pid), asset_stream_max):
-                direct_stale.add(key)
-                break
-
     children = defaultdict(list)
-    for top_key, bottom_key in result.edges:
+    for edge, aids in result.edge_assets.items():
+        if edge in disabled:
+            continue
+        top_key, bottom_key = edge
         children[top_key].append(bottom_key)
+        if aids & stale_assets:
+            direct_stale.add(bottom_key)
 
-    # Propagation de l'obsolescence vers l'aval (rouge ET orange se propagent).
+    # Propagation de l'obsolescence vers l'aval, par les liens actifs.
     obsolete = set(direct_stale)
     stack = list(direct_stale)
     while stack:

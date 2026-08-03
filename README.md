@@ -193,6 +193,20 @@ L'obsolescence se **propage vers l'aval** : un nœud construit, même
 indirectement, sur une dépendance périmée est signalé (rouge s'il importe
 directement un asset périmé, sinon jaune).
 
+Les **liens reprennent la couleur du rectangle enfant** (celui qu'ils
+alimentent), ce qui rend la propagation lisible d'un coup d'œil.
+
+### Désactiver un lien (simulation « et si ? »)
+
+Un **clic droit** sur un lien le désactive : les statuts sont **recalculés**
+comme si cette dépendance n'existait pas — un nœud dont le seul input périmé
+passait par ce lien redevient vert. Un second clic droit le réactive
+(« Enable all links » dans la barre d'outils les rétablit tous).
+
+> Ces désactivations sont **temporaires et en mémoire uniquement** : **rien
+> n'est écrit dans la base de données**, et tout est perdu dès qu'un nouveau
+> graphe est affiché.
+
 > Nuance : le nœud à l'origine d'une republication (ex. un `modeling` dont un
 > `v007` existe alors que le graphe tire le `v005`) reste **vert** — ses
 > propres inputs sont sains — mais ses lignes d'output apparaissent en **rouge**
@@ -204,6 +218,8 @@ directement un asset périmé, sinon jaune).
 
 | Action                          | Effet                                      |
 |---------------------------------|--------------------------------------------|
+| **Clic** sur un lien            | Fenêtre de détail : assets transitant par le lien + outputs des deux scènes, avec versions |
+| **Clic droit** sur un lien      | **Désactive/réactive** le lien (temporaire) |
 | **Glisser** un nœud             | Réordonner (déplacement **horizontal** seul)|
 | **Glisser la poignée** de ligne (à gauche) | **Réordonner les lignes** de tâche (vertical) |
 | **Survol** d'un nœud            | Dépendances directes + graphiste + inputs/outputs avec versions `(vXXX)` ou `(vXXX → vYYY)` |

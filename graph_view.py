@@ -23,6 +23,7 @@ from PySide6.QtGui import (
     QFontMetricsF,
     QPainter,
     QPainterPath,
+    QPainterPathStroker,
     QPen,
     QPolygonF,
 )
@@ -34,6 +35,8 @@ from PySide6.QtWidgets import (
     QGraphicsSimpleTextItem,
     QGraphicsView,
 )
+
+import graph_model as gm
 
 # --- Palette (fond sombre, cartes pastel) -----------------------------------
 COL_BG = QColor("#14171b")
@@ -55,9 +58,7 @@ COL_START_BORDER = QColor("#d9a93f")   # or, accent de la scène interrogée
 COL_ASSET_OK = QColor("#1c7a44")       # vert foncé
 COL_ASSET_STALE = QColor("#b4392c")    # rouge foncé
 
-COL_EDGE_DEFAULT = QColor(172, 180, 192, 90)
-COL_EDGE_FADED = QColor(150, 158, 170, 28)
-COL_EDGE_HILITE = QColor(233, 237, 245, 230)
+COL_EDGE_DISABLED = QColor(130, 138, 150, 120)   # lien désactivé (pointillés)
 
 # Poignée de ligne (à gauche) + séparateur asset/shot.
 COL_HEADER_BG = QColor("#20242b")
@@ -69,6 +70,7 @@ COL_SEPARATOR = QColor("#727e8f")
 NODE_W = 200.0
 PAD = 11.0
 COL_W = NODE_W + 52.0
+EDGE_HIT_WIDTH = 12.0      # largeur de la zone cliquable d'un lien
 HEADER_H = 26.0            # hauteur de la poignée de ligne
 SEP_EXTRA = 34.0          # espace supplémentaire autour du séparateur
 GUIDE_DX = 18.0
@@ -137,41 +139,89 @@ class EdgeItem(QGraphicsPathItem):
     STATE_HILITE = 1
     STATE_FADED = 2
 
-    def __init__(self, src_item, dst_item, top_key, bottom_key):
+    def __init__(self, src_item, dst_item, top_key, bottom_key, view=None):
         super().__init__()
         self.src = src_item          # parent (row du haut)
         self.dst = dst_item          # enfant (row du bas)
         self.top_key = top_key
         self.bottom_key = bottom_key
+        self.key = (top_key, bottom_key)
+        self._view = view
         self._arrow_size = 9.0
         self._state = self.STATE_DEFAULT
+        self.disabled = False        # désactivation temporaire (en mémoire)
+        self.selected = False
         # Cintrage horizontal des arêtes qui sautent des lignes, pour rester
         # visibles quand les nœuds sont empilés dans la même colonne.
         self._row_span = abs(dst_item.node.row - src_item.node.row)
         self._bow_dir = 1.0 if (hash((top_key, bottom_key)) % 2 == 0) else -1.0
         self.setZValue(-1)
-        self.setAcceptHoverEvents(False)
-        self._apply_pen()
+        self.setAcceptHoverEvents(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.refresh_appearance()
         self.update_path()
 
-    def _apply_pen(self):
-        if self._state == self.STATE_HILITE:
-            pen = QPen(COL_EDGE_HILITE, 2.2)
+    # --- couleur : celle du nœud enfant -------------------------------------
+    def _base_color(self):
+        """Couleur du lien = couleur (bordure) du rectangle enfant."""
+        status = self.dst.node.status
+        if status == "stale":
+            return COL_STALE_BORDER
+        if status == "inherited":
+            return COL_INHERITED_BORDER
+        return COL_OK_BORDER
+
+    def refresh_appearance(self):
+        """Recalcule stylo et infobulle selon statut/état courant."""
+        color = QColor(self._base_color())
+        width = 1.8
+        style = Qt.SolidLine
+
+        if self.disabled:
+            color = QColor(COL_EDGE_DISABLED)
+            style = Qt.DashLine
+            width = 1.4
+        elif self._state == self.STATE_HILITE:
+            color = color.lighter(125)
+            width = 2.8
         elif self._state == self.STATE_FADED:
-            pen = QPen(COL_EDGE_FADED, 1.1)
-        else:
-            pen = QPen(COL_EDGE_DEFAULT, 1.3)
+            color.setAlpha(45)
+            width = 1.2
+
+        if self.selected:
+            width = max(width, 3.2)
+            if not self.disabled:
+                color = color.lighter(135)
+
+        pen = QPen(color, width)
+        pen.setStyle(style)
         pen.setCapStyle(Qt.RoundCap)
         pen.setJoinStyle(Qt.RoundJoin)
         self._pen = pen
         self.setPen(pen)
+        self.setToolTip(
+            f"{self.src.node.display_name}\n→ {self.dst.node.display_name}\n"
+            + ("DISABLED — right-click to re-enable"
+               if self.disabled else
+               "Click: details · Right-click: disable this link"))
         self.update()
 
     def set_state(self, state):
         if state != self._state:
             self._state = state
             self.setZValue(1 if state == self.STATE_HILITE else -1)
-            self._apply_pen()
+            self.refresh_appearance()
+
+    def set_selected(self, selected):
+        if selected != self.selected:
+            self.selected = selected
+            self.setZValue(2 if selected else -1)
+            self.refresh_appearance()
+
+    def set_disabled(self, disabled):
+        if disabled != self.disabled:
+            self.disabled = disabled
+            self.refresh_appearance()
 
     def update_path(self):
         p = self.src.bottom_anchor()
@@ -189,8 +239,39 @@ class EdgeItem(QGraphicsPathItem):
         self.setPath(path)
 
     def boundingRect(self):
-        extra = self._arrow_size + self._pen.widthF() + 2.0
+        extra = self._arrow_size + self._pen.widthF() + EDGE_HIT_WIDTH
         return super().boundingRect().adjusted(-extra, -extra, extra, extra)
+
+    def shape(self):
+        """Zone cliquable élargie : une courbe fine est difficile à viser."""
+        stroker = QPainterPathStroker()
+        stroker.setWidth(EDGE_HIT_WIDTH)
+        return stroker.createStroke(self.path())
+
+    # --- interactions -------------------------------------------------------
+    def hoverEnterEvent(self, event):
+        if self._view is not None:
+            self._view._on_edge_hover(self)
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        if self._view is not None:
+            self._view._on_edge_unhover(self)
+        super().hoverLeaveEvent(event)
+
+    def mousePressEvent(self, event):
+        if self._view is None:
+            super().mousePressEvent(event)
+            return
+        if event.button() == Qt.RightButton:
+            self._view.toggle_edge_disabled(self)
+            event.accept()
+            return
+        if event.button() == Qt.LeftButton:
+            self._view.select_edge(self)
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def _arrow_polygon(self):
         path = self.path()
@@ -213,9 +294,11 @@ class EdgeItem(QGraphicsPathItem):
         painter.setPen(self._pen)
         painter.setBrush(Qt.NoBrush)
         painter.drawPath(self.path())
-        painter.setPen(Qt.NoPen)
-        painter.setBrush(QBrush(self._pen.color()))
-        painter.drawPolygon(self._arrow_polygon())
+        # Lien désactivé : trait pointillé sans flèche pleine.
+        if not self.disabled:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(self._pen.color()))
+            painter.drawPolygon(self._arrow_polygon())
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +434,11 @@ class SceneNodeItem(QGraphicsObject):
 
     def add_edge(self, edge):
         self._edges.append(edge)
+
+    def refresh_status(self):
+        """Le statut du nœud a changé : infobulle + repeinture."""
+        self.setToolTip(self._tooltip_text())
+        self.update()
 
     def set_row_y(self, y):
         self._row_y = y
@@ -529,6 +617,11 @@ class RowHeaderItem(QGraphicsObject):
 class DependencyGraphView(QGraphicsView):
     """QGraphicsView avec zoom molette, pan bouton du milieu, survol."""
 
+    # Émis au clic sur un lien : dict décrivant le lien sélectionné.
+    edge_selected = Signal(object)
+    # Émis quand des liens sont désactivés/réactivés (nb de liens désactivés).
+    links_changed = Signal(int)
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._scene = QGraphicsScene(self)
@@ -553,6 +646,11 @@ class DependencyGraphView(QGraphicsView):
         self._sep_label = None
         self._reflowing = False
         self._zoom = 1.0
+        self._result = None         # graph_model.GraphResult courant
+        self._selected_edge = None
+        # Liens désactivés temporairement : en mémoire uniquement, remis à
+        # zéro à chaque nouveau graphe, jamais écrits en base.
+        self._disabled_edges = set()
 
         self._panning = False
         self._pan_last = None
@@ -567,12 +665,17 @@ class DependencyGraphView(QGraphicsView):
         self._initial_pos.clear()
         self._separator = None
         self._sep_label = None
+        self._result = None
+        self._selected_edge = None
+        # Les désactivations sont perdues dès que le graphe change.
+        self._disabled_edges = set()
 
     def set_graph(self, result):
         """Affiche un graph_model.GraphResult."""
         self.clear_graph()
         if not result.nodes:
             return
+        self._result = result
 
         # 1) items nœud.
         for key, node in result.nodes.items():
@@ -620,7 +723,7 @@ class DependencyGraphView(QGraphicsView):
             dst = self._node_items.get(bottom_key)
             if src is None or dst is None:
                 continue
-            edge = EdgeItem(src, dst, top_key, bottom_key)
+            edge = EdgeItem(src, dst, top_key, bottom_key, view=self)
             self._scene.addItem(edge)
             self._edges.append(edge)
             src.add_edge(edge)
@@ -629,6 +732,82 @@ class DependencyGraphView(QGraphicsView):
         # 5) placement.
         self._reflow(record_initial=True)
         self.reset_view()
+
+    # --- liens : sélection et désactivation temporaire ----------------------
+    def select_edge(self, edge):
+        """Sélectionne un lien et publie son détail (inputs/outputs)."""
+        if self._selected_edge is not None and self._selected_edge is not edge:
+            self._selected_edge.set_selected(False)
+        edge.set_selected(True)
+        self._selected_edge = edge
+        self.edge_selected.emit(self.edge_info(edge))
+
+    def clear_edge_selection(self):
+        if self._selected_edge is not None:
+            self._selected_edge.set_selected(False)
+            self._selected_edge = None
+
+    def edge_info(self, edge):
+        """Décrit un lien : scènes reliées et assets qui y transitent."""
+        details = []
+        if self._result is not None:
+            details = self._result.edge_details.get(edge.key, [])
+        return {
+            "key": edge.key,
+            "parent": edge.src.node.display_name,
+            "child": edge.dst.node.display_name,
+            "parent_status": edge.src.node.status,
+            "child_status": edge.dst.node.status,
+            "disabled": edge.disabled,
+            # Assets exportés par le parent et importés par l'enfant.
+            "assets": list(details),
+            "parent_outputs": list(edge.src.node.outputs),
+            "parent_version": edge.src.node.version,
+            "child_outputs": list(edge.dst.node.outputs),
+            "child_version": edge.dst.node.version,
+        }
+
+    def toggle_edge_disabled(self, edge):
+        """Active/désactive un lien (en mémoire) et recalcule les statuts."""
+        edge.set_disabled(not edge.disabled)
+        if edge.disabled:
+            self._disabled_edges.add(edge.key)
+        else:
+            self._disabled_edges.discard(edge.key)
+        self._apply_status_recompute()
+        if edge is self._selected_edge:
+            self.edge_selected.emit(self.edge_info(edge))
+        self.links_changed.emit(len(self._disabled_edges))
+
+    def enable_all_links(self):
+        """Réactive tous les liens désactivés."""
+        if not self._disabled_edges:
+            return
+        for edge in self._edges:
+            edge.set_disabled(False)
+        self._disabled_edges.clear()
+        self._apply_status_recompute()
+        self.links_changed.emit(0)
+
+    def disabled_link_count(self):
+        return len(self._disabled_edges)
+
+    def _apply_status_recompute(self):
+        """Recalcule les statuts (rien n'est écrit en base) et rafraîchit."""
+        if self._result is None:
+            return
+        gm.recompute_status(self._result, self._disabled_edges)
+        for item in self._node_items.values():
+            item.refresh_status()
+        for edge in self._edges:
+            edge.refresh_appearance()
+
+    # --- survol d'un lien ---------------------------------------------------
+    def _on_edge_hover(self, edge):
+        edge.set_state(EdgeItem.STATE_HILITE)
+
+    def _on_edge_unhover(self, edge):
+        edge.set_state(EdgeItem.STATE_DEFAULT)
 
     # --- disposition des lignes --------------------------------------------
     def _scene_right(self):
@@ -750,6 +929,11 @@ class DependencyGraphView(QGraphicsView):
             self.setCursor(Qt.ClosedHandCursor)
             event.accept()
             return
+        # Clic gauche dans le vide : désélectionne le lien courant.
+        if event.button() == Qt.LeftButton:
+            hit = self.itemAt(event.position().toPoint())
+            if not isinstance(hit, EdgeItem):
+                self.clear_edge_selection()
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):

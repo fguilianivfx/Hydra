@@ -13,10 +13,11 @@ from __future__ import annotations
 import sys
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QColor, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
+    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -28,6 +29,8 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSplitter,
     QTabWidget,
+    QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -56,6 +59,81 @@ _KEYRING_SERVICE = "Hydra-DependencyGraph"
 _DEFAULT_SCENE = "qua_077_02000_comp_v019"
 
 
+def _version_state(current, latest):
+    """« (vXXX) » si à jour, « (vXXX → vYYY) » si une version plus récente existe."""
+    cur = f"v{current:03d}" if current is not None else "v?"
+    if current is not None and latest is not None and current < latest:
+        return f"({cur} → v{latest:03d})", True
+    return f"({cur})", False
+
+
+class LinkDetailsDialog(QDialog):
+    """Détail d'un lien sélectionné : assets transitant, inputs et outputs."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Link details")
+        self.resize(460, 420)
+        self.setModal(False)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 12, 12, 12)
+        lay.setSpacing(8)
+
+        self._header = QLabel()
+        self._header.setWordWrap(True)
+        self._header.setTextFormat(Qt.RichText)
+        lay.addWidget(self._header)
+
+        self._tree = QTreeWidget()
+        self._tree.setHeaderLabels(["Asset", "Version"])
+        self._tree.setRootIsDecorated(True)
+        self._tree.setAlternatingRowColors(True)
+        self._tree.setColumnWidth(0, 280)
+        lay.addWidget(self._tree, 1)
+
+        hint = QLabel("Right-click a link in the graph to disable it "
+                      "temporarily (nothing is written to the database).")
+        hint.setStyleSheet("color:#8a93a0;")
+        hint.setWordWrap(True)
+        lay.addWidget(hint)
+
+    def show_link(self, info):
+        state = ("  —  <b>DISABLED</b>" if info["disabled"] else "")
+        self._header.setText(
+            f"<b>{info['parent']}</b><br>&nbsp;&nbsp;↓ feeds<br>"
+            f"<b>{info['child']}</b>{state}")
+
+        self._tree.clear()
+        # 1) ce qui transite réellement par ce lien.
+        flowing = QTreeWidgetItem(
+            self._tree, [f"Assets through this link ({len(info['assets'])})", ""])
+        flowing.setExpanded(True)
+        for label, cur, latest in info["assets"]:
+            text, stale = _version_state(cur, latest)
+            item = QTreeWidgetItem(flowing, [label, text])
+            if stale:
+                item.setForeground(1, QColor("#b4392c"))
+            else:
+                item.setForeground(1, QColor("#1c7a44"))
+
+        # 2) rappel des outputs de chaque extrémité.
+        self._add_outputs("Outputs of " + info["parent"],
+                          info["parent_outputs"], info["parent_version"])
+        self._add_outputs("Outputs of " + info["child"],
+                          info["child_outputs"], info["child_version"])
+        self.show()
+        self.raise_()
+
+    def _add_outputs(self, title, outputs, version):
+        root = QTreeWidgetItem(self._tree, [f"{title} ({len(outputs)})", ""])
+        for name, latest in outputs:
+            text, stale = _version_state(version, latest)
+            item = QTreeWidgetItem(root, [name, text])
+            item.setForeground(1, QColor("#b4392c") if stale
+                               else QColor("#1c7a44"))
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -65,6 +143,7 @@ class MainWindow(QMainWindow):
         self._settings = QSettings("Hydra", "DependencyGraph")
         # Cache des données par signature de source (en mémoire uniquement).
         self._data_cache = {}
+        self._link_dialog = None
 
         self._build_ui()
         self._restore_settings()
@@ -121,6 +200,8 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(6, 10, 10, 6)
         lay.setSpacing(6)
         self.view = DependencyGraphView()
+        self.view.edge_selected.connect(self._on_edge_selected)
+        self.view.links_changed.connect(self._on_links_changed)
         lay.addWidget(self.view, 1)
         lay.addWidget(self._build_legend())
         return panel
@@ -264,6 +345,14 @@ class MainWindow(QMainWindow):
         act_reset.triggered.connect(lambda: self.view.reset_layout())
         tb.addAction(act_reset)
 
+        self.act_enable_links = QAction("Enable all links", self)
+        self.act_enable_links.setToolTip(
+            "Re-enable every temporarily disabled link")
+        self.act_enable_links.setEnabled(False)
+        self.act_enable_links.triggered.connect(
+            lambda: self.view.enable_all_links())
+        tb.addAction(self.act_enable_links)
+
     def _build_legend(self):
         w = QWidget()
         lay = QHBoxLayout(w)
@@ -288,7 +377,8 @@ class MainWindow(QMainWindow):
         swatch(COL_INHERITED_BORDER, "stale by inheritance")
         swatch(COL_START_BORDER, "queried scene", border=True)
         lay.addStretch(1)
-        tip = QLabel("Hover: dependencies + artist · Wheel: zoom · "
+        tip = QLabel("Hover: dependencies + artist · Click a link: details · "
+                     "Right-click a link: disable (temporary) · Wheel: zoom · "
                      "Middle button: pan · Drag a node: horizontal · "
                      "Drag a row handle: reorder tasks")
         tip.setStyleSheet("color:#8a93a0;")
@@ -436,6 +526,23 @@ class MainWindow(QMainWindow):
     def _error(self, message, title="Error"):
         self.statusBar().showMessage(message)
         QMessageBox.warning(self, title, message)
+
+    # ------------------------------------------------------------- links ---
+    def _on_edge_selected(self, info):
+        """Affiche le détail du lien cliqué (fenêtre non modale)."""
+        if self._link_dialog is None:
+            self._link_dialog = LinkDetailsDialog(self)
+        self._link_dialog.show_link(info)
+
+    def _on_links_changed(self, disabled_count):
+        """Un lien a été désactivé/réactivé (changement temporaire)."""
+        self.act_enable_links.setEnabled(disabled_count > 0)
+        if disabled_count:
+            self.statusBar().showMessage(
+                f"{disabled_count} link(s) temporarily disabled — statuses "
+                "recomputed. Nothing is written to the database.")
+        else:
+            self.statusBar().showMessage("All links enabled.")
 
     # ------------------------------------------------- keyring (password) --
     def _on_remember_toggled(self, checked):
