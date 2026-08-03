@@ -5,15 +5,17 @@ d'une scène et d'une source de données, affiche un **graphe interactif** des
 scènes dont elle dépend, coloré selon leur fraîcheur.
 
 * un **rectangle** = une scène (une version), avec le nom complet en haut et
-  la liste de ses *nodes* (outputs) regroupés en dessous ;
+  **un output par ligne** en dessous — chaque output en **vert** s'il est à sa
+  dernière version publiée, en **rouge** sinon avec la version disponible
+  (ex. `rendercam ⚠ (v001 → v002)`) ;
 * une **ligne par type de tâche**, les sources en haut et le compositing en
-  bas (le flux descend) ;
-* **vert** = tous les inputs à jour · **rouge** = au moins un input importé
-  n'est pas à sa dernière version exportée, ou un ancêtre l'est
-  (**coloration par propagation**) ;
+  bas (le flux descend) ; la **scène interrogée est toujours tout en bas** ;
+* couleur du nœud par **propagation** : **vert** = tous les inputs à jour ·
+  **rouge** = importe au moins un asset supplanté · **orange** = obsolète *par
+  héritage* seulement (ses inputs sont à jour mais un ancêtre est obsolète) ;
 * nœuds **déplaçables horizontalement** (le Y reste verrouillé sur la ligne
-  de la tâche) ; **survol** = mise en évidence des dépendances directes ;
-  **molette** = zoom ; **bouton du milieu** = déplacement (pan).
+  de la tâche) ; **survol** = dépendances directes mises en évidence + nom du
+  **graphiste** ; **molette** = zoom ; **bouton du milieu** = déplacement.
 
 Le rendu utilise `QGraphicsView` / `QGraphicsScene` avec des `QGraphicsItem`
 personnalisés — **aucune librairie de graphe externe**.
@@ -124,7 +126,8 @@ av absent, version `19`).
 
 * la colonne `scenes.name` est « sale » (noms d'artistes, suffixes) : la
   résolution se fait sur les colonnes structurées `(entity_name, task_name,
-  av_name, version)`, **pas** sur `name` ;
+  av_name, version)`, **pas** sur `name`. Le **nom du graphiste** affiché au
+  survol en est toutefois extrait (segments non canoniques de `name`) ;
 * `comp` est mappé sur `task_name = "compositing"` ;
 * un `av` absent du nom correspond à `av_name = ""` ;
 * en dernier recours, un filtrage par sous-chaîne sur `name` est tenté ;
@@ -147,29 +150,32 @@ Trois tables comptent : `assets`, `scenes`, `binds`.
 > La table `assets_parents` est **ignorée** (cache partiel/incohérent) : toute
 > la récursion passe par `scenes` + `binds`.
 
-**Couleur d'un nœud — par propagation** :
+**Détail des outputs (dans le rectangle)** — un output par ligne, avec sa
+fraîcheur individuelle (comparaison à la **dernière version exportée de cet
+asset**, jamais à la version de scène) :
 
-Un nœud reste **vert** seulement si **tous ses inputs sont à jour** ; sinon il
-est **rouge**. Un *input* est un asset importé (via un bind actif) : il est « à
-jour » si sa version est la **dernière version exportée de cet asset**
-(comparaison au niveau de l'asset, **pas** de la version de scène).
+* à jour → **vert** : `location (v001)` ;
+* périmé → **rouge** : `rendercam ⚠ (v001 → v002)` (version courante → version
+  disponible).
 
-La couleur se **propage vers l'aval** : un nœud construit — même indirectement
-— sur un input périmé devient rouge lui aussi.
+**Couleur du nœud — par propagation, à trois états** :
 
-* **rouge** si le nœud importe au moins un asset supplanté (une version plus
-  récente de ce même asset existe), **ou** si l'un de ses ancêtres (amont) est
-  rouge ;
-* **vert** sinon (un nœud sans input, à la source du graphe, est vert).
+Un *input* est un asset importé (via un bind actif) ; il est « à jour » si sa
+version est la dernière version exportée de cet asset.
 
-> Conséquence : le nœud à l'origine d'une republication (ex. un `modeling` dont
-> un `v007` existe alors que le graphe tire un `v005`) peut rester vert — ses
-> propres inputs sont sains — tandis que **tout ce qui l'importe** passe au
-> rouge. Le badge « ⚠ dernière : v007 » signale néanmoins qu'une version plus
-> récente existe.
+* **vert** — tous les inputs sont à jour *et* aucun ancêtre n'est obsolète ;
+* **rouge** — le nœud importe au moins un asset supplanté (input périmé) ;
+* **orange** — obsolète **par héritage uniquement** : ses inputs directs sont à
+  jour, mais un de ses ancêtres (amont) est obsolète.
 
-Chaque nœud indique en effet s'il n'est pas la dernière version exportée
-(« ⚠ dernière : v020 »).
+L'obsolescence se **propage vers l'aval** : un nœud construit, même
+indirectement, sur une dépendance périmée est signalé (rouge s'il importe
+directement un asset périmé, sinon orange).
+
+> Nuance : le nœud à l'origine d'une republication (ex. un `modeling` dont un
+> `v007` existe alors que le graphe tire le `v005`) reste **vert** — ses
+> propres inputs sont sains — mais ses lignes d'output apparaissent en **rouge**
+> (`chaise ⚠ (v005 → v007)`), et tout ce qui l'importe passe au rouge.
 
 ---
 
@@ -178,7 +184,7 @@ Chaque nœud indique en effet s'il n'est pas la dernière version exportée
 | Action                         | Effet                                       |
 |--------------------------------|---------------------------------------------|
 | **Glisser** un nœud            | Réordonner (déplacement **horizontal** seul)|
-| **Survol** d'un nœud           | Met en évidence parents & enfants directs   |
+| **Survol** d'un nœud           | Dépendances directes + nom du **graphiste** |
 | **Molette**                    | Zoom (ancré sous le curseur)                |
 | **Bouton du milieu** + glisser | Déplacement (pan)                           |
 | **Recentrer** (`Ctrl+0`)       | Ajuste le zoom pour tout voir               |

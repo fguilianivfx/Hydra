@@ -38,17 +38,22 @@ from PySide6.QtWidgets import (
 # --- Palette (dark, sobre) --------------------------------------------------
 COL_BG = QColor("#14171b")
 COL_TITLE = QColor("#eef1f5")
-COL_SUB = QColor("#b4bcc6")
 COL_META_START = QColor("#f0c96a")
-COL_META_WARN = QColor("#eaa24d")
 COL_ROW_LABEL = QColor("#7b8593")
 COL_ROW_GUIDE = QColor(255, 255, 255, 12)
 
+# Fond / bordure du nœud selon son statut de propagation.
 COL_OK_FILL = QColor("#22402f")
 COL_OK_BORDER = QColor("#4fa06d")
 COL_STALE_FILL = QColor("#46282b")
 COL_STALE_BORDER = QColor("#c9564e")
+COL_INHERITED_FILL = QColor("#4a381f")
+COL_INHERITED_BORDER = QColor("#d0913f")
 COL_START_BORDER = QColor("#e6b84c")
+
+# Couleur du texte d'un output selon sa fraîcheur.
+COL_ASSET_OK = QColor("#7fd39b")
+COL_ASSET_STALE = QColor("#ef8a80")
 
 COL_EDGE_DEFAULT = QColor(172, 180, 192, 90)
 COL_EDGE_FADED = QColor(150, 158, 170, 28)
@@ -76,6 +81,19 @@ def abbreviate_node(name):
     if head and len(head) <= 16:
         return head
     return name[:14] + "…"
+
+
+def _vfmt(version):
+    """Formate une version : 19 -> 'v019' ; None -> 'v?'."""
+    return f"v{version:03d}" if version is not None else "v?"
+
+
+def _fit_output_line(name, suffix, fm, max_w):
+    """Assemble « nom + suffixe » en gardant le suffixe (versions) visible."""
+    if fm.horizontalAdvance(name + suffix) <= max_w:
+        return name + suffix
+    name_max = max(10.0, max_w - fm.horizontalAdvance(suffix))
+    return fm.elidedText(name, Qt.ElideRight, name_max) + suffix
 
 
 def _wrap(words, sep, fm, max_w):
@@ -213,8 +231,8 @@ class SceneNodeItem(QGraphicsObject):
         self._meta_font.setItalic(True)
 
         self._title_lines = []
-        self._meta_lines = []     # list[(texte, couleur)]
-        self._sub_lines = []
+        self._meta_lines = []       # list[(texte, couleur)]
+        self._output_lines = []     # list[(texte, couleur)] : un asset/ligne
 
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
@@ -228,11 +246,20 @@ class SceneNodeItem(QGraphicsObject):
     def _tooltip_text(self):
         n = self.node
         parts = [n.display_name]
-        if n.node_names:
-            parts.append("nodes : " + ", ".join(n.node_names))
-        if not n.is_latest and n.latest_version is not None:
-            parts.append(f"dernière version : v{n.latest_version:03d}")
-        parts.append("à jour" if n.status == "ok" else "périmé")
+        parts.append("graphiste : "
+                     + (", ".join(n.artists) if n.artists else "inconnu"))
+        for name, latest in n.outputs:
+            v = n.version
+            if v is not None and latest is not None and v < latest:
+                parts.append(f"  {name} : {_vfmt(v)} → dernière {_vfmt(latest)} "
+                             "(périmé)")
+            else:
+                parts.append(f"  {name} : {_vfmt(v)}")
+        parts.append({
+            "ok": "à jour",
+            "stale": "périmé (input obsolète)",
+            "inherited": "périmé par héritage",
+        }.get(n.status, n.status))
         return "\n".join(parts)
 
     def _relayout(self):
@@ -241,7 +268,7 @@ class SceneNodeItem(QGraphicsObject):
         inner_w = NODE_W - 2 * PAD
 
         fm_title = QFontMetricsF(self._title_font)
-        fm_sub = QFontMetricsF(self._sub_font)
+        fm_out = QFontMetricsF(self._sub_font)
         fm_meta = QFontMetricsF(self._meta_font)
 
         # Titre (nom canonique) sur 1-2 lignes, avec élision si nécessaire.
@@ -253,32 +280,34 @@ class SceneNodeItem(QGraphicsObject):
             fm_title.elidedText(t, Qt.ElideRight, inner_w) for t in title_lines
         ]
 
-        # Lignes méta (départ / version périmée).
+        # Ligne méta : uniquement « scène de départ » (plus de badge version).
         self._meta_lines = []
         if n.is_start:
             self._meta_lines.append(("— scène de départ —", COL_META_START))
-        if not n.is_latest and n.latest_version is not None:
-            self._meta_lines.append(
-                (f"⚠ dernière : v{n.latest_version:03d}", COL_META_WARN))
 
-        # Liste des nodes abrégés, séparés par « · ».
-        if n.node_names:
-            words = [abbreviate_node(name) for name in n.node_names]
-            self._sub_lines = _wrap(words, " · ", fm_sub, inner_w)
-            self._sub_lines = [
-                fm_sub.elidedText(t, Qt.ElideRight, inner_w)
-                for t in self._sub_lines
-            ]
-        else:
-            self._sub_lines = []
+        # Un output par ligne, coloré selon sa fraîcheur :
+        #   à jour  -> vert :  "name (v001)"
+        #   périmé  -> rouge : "name ⚠ (v001 → v002)"
+        self._output_lines = []
+        for name, latest in n.outputs:
+            v = n.version
+            if v is not None and latest is not None and v < latest:
+                suffix = f"  ⚠ ({_vfmt(v)} → {_vfmt(latest)})"
+                color = COL_ASSET_STALE
+            else:
+                suffix = f"  ({_vfmt(v)})"
+                color = COL_ASSET_OK
+            text = _fit_output_line(abbreviate_node(name), suffix,
+                                    fm_out, inner_w)
+            self._output_lines.append((text, color))
 
         # Hauteur totale.
         h = PAD
-        h += len(self._title_lines) * (fm_title.height())
+        h += len(self._title_lines) * fm_title.height()
         if self._meta_lines:
             h += 3 + len(self._meta_lines) * fm_meta.height()
-        if self._sub_lines:
-            h += 6 + len(self._sub_lines) * fm_sub.height()
+        if self._output_lines:
+            h += 6 + len(self._output_lines) * fm_out.height()
         h += PAD
         self._height = max(MIN_ROW_H, h)
 
@@ -330,6 +359,8 @@ class SceneNodeItem(QGraphicsObject):
 
         if n.status == "stale":
             fill, border = COL_STALE_FILL, COL_STALE_BORDER
+        elif n.status == "inherited":
+            fill, border = COL_INHERITED_FILL, COL_INHERITED_BORDER
         else:
             fill, border = COL_OK_FILL, COL_OK_BORDER
 
@@ -366,15 +397,15 @@ class SceneNodeItem(QGraphicsObject):
                 painter.drawText(QPointF(x, y), text)
                 y += fm_meta.descent() + fm_meta.leading()
 
-        if self._sub_lines:
+        if self._output_lines:
             y += 6
-            fm_sub = QFontMetricsF(self._sub_font)
+            fm_out = QFontMetricsF(self._sub_font)
             painter.setFont(self._sub_font)
-            painter.setPen(QPen(COL_SUB))
-            for line in self._sub_lines:
-                y += fm_sub.ascent()
-                painter.drawText(QPointF(x, y), line)
-                y += fm_sub.descent() + fm_sub.leading()
+            for text, color in self._output_lines:
+                y += fm_out.ascent()
+                painter.setPen(QPen(color))
+                painter.drawText(QPointF(x, y), text)
+                y += fm_out.descent() + fm_out.leading()
 
 
 # ---------------------------------------------------------------------------

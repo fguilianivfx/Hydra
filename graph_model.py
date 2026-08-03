@@ -91,8 +91,8 @@ class SceneNode:
 
     __slots__ = (
         "key", "project", "entity_name", "task_name", "av_name", "version",
-        "node_names", "is_start", "status", "latest_version", "is_latest",
-        "display_name", "row", "col",
+        "node_names", "outputs", "artists", "scene_names",
+        "is_start", "status", "display_name", "row", "col",
     )
 
     def __init__(self, key, project, entity_name, task_name, av_name, version):
@@ -102,11 +102,13 @@ class SceneNode:
         self.task_name = task_name
         self.av_name = av_name
         self.version = version
-        self.node_names = []       # outputs produits (node_name), triés
+        self.node_names = []       # noms des outputs (node_name), triés
+        self.outputs = []          # list[(name, latest_version)] triée par name
+        self.artists = []          # graphistes ayant publié cette scène
+        self.scene_names = []      # noms bruts des lignes scenes (pour survol)
         self.is_start = False
-        self.status = "ok"         # "ok" (vert) | "stale" (rouge)
-        self.latest_version = version
-        self.is_latest = True
+        # "ok" (vert) | "inherited" (orange) | "stale" (rouge)
+        self.status = "ok"
         self.display_name = ""
         self.row = _UNKNOWN_RANK
         self.col = 0
@@ -374,17 +376,19 @@ def build_graph(assets, scenes, binds, input_name):
     for aid in s0_dep_assets:                      # inputs directs de S0
         node_inputs[start_key].add(aid)
 
-    # Badge « dernière version » (basé sur les versions d'assets exportés).
+    # Détails par output + graphiste(s), et nom canonique d'affichage.
     for node in result.nodes.values():
-        _compute_freshness_badge(node, scene_stream_max, asset_stream_max)
+        _compute_outputs(node, asset_stream_max)
+        _fill_scene_meta(node, scenes_by_iv, scenes)
         node.display_name = canonical_name(
             node.project or prefix, node.entity_name, node.task_name,
             node.av_name, node.version,
         )
 
-    # Statut par propagation : un nœud est vert seulement si tous ses inputs
-    # sont à jour (importés à la dernière version exportée de l'asset) ET si
-    # tous les nœuds produisant ces inputs sont eux-mêmes verts.
+    # Statut par propagation à trois états :
+    #   stale (rouge)     = importe au moins un asset supplanté ;
+    #   inherited (orange)= inputs à jour mais un ancêtre est obsolète ;
+    #   ok (vert)         = à jour et aucun ancêtre obsolète.
     _propagate_status(result, node_inputs, assets, asset_stream_max)
 
     _assign_layout(result)
@@ -397,28 +401,63 @@ def build_graph(assets, scenes, binds, input_name):
     return result
 
 
-def _compute_freshness_badge(node, scene_stream_max, asset_stream_max):
-    """Renseigne node.latest_version / node.is_latest pour l'affichage.
+def _compute_outputs(node, asset_stream_max):
+    """Renseigne node.outputs = [(name, latest_version)] pour chaque output.
 
-    La « dernière version » est celle du/des asset(s) exporté(s) par la scène
-    (pas la dernière version de la scène). Pour une scène sans output suivi
-    (la compo), on retombe sur le flux de scène, faute d'asset à comparer.
+    ``latest_version`` est la dernière version EXPORTÉE de cet asset (flux
+    ``project, entity, task, av, node_name``). L'output est à jour si
+    ``node.version >= latest_version`` (comparaison au niveau de l'asset).
     """
-    if node.node_names:
-        maxes = []
-        for name in node.node_names:
-            m = asset_stream_max.get(
-                (node.project, node.entity_name, node.task_name,
-                 node.av_name, name))
-            if m is not None:
-                maxes.append(m)
-        node.latest_version = max(maxes) if maxes else node.version
-    else:
-        node.latest_version = scene_stream_max.get(
-            (node.project, node.entity_name, node.task_name, node.av_name),
-            node.version)
-    node.is_latest = (node.version is None or node.latest_version is None
-                      or node.version >= node.latest_version)
+    outputs = []
+    for name in node.node_names:
+        latest = asset_stream_max.get(
+            (node.project, node.entity_name, node.task_name,
+             node.av_name, name))
+        if latest is None:
+            latest = node.version
+        outputs.append((name, latest))
+    node.outputs = outputs
+
+
+def _fill_scene_meta(node, scenes_by_iv, scenes):
+    """Renseigne node.scene_names et node.artists depuis les lignes scenes."""
+    names, artists = [], []
+    for sid in scenes_by_iv.get(node.key, ()):
+        raw = scenes.get(sid, {}).get("name", "")
+        if raw and raw not in names:
+            names.append(raw)
+        artist = _extract_artist(raw, node)
+        if artist and artist not in artists:
+            artists.append(artist)
+    node.scene_names = names
+    node.artists = artists
+
+
+def _extract_artist(scene_name, node):
+    """Devine le nom du graphiste depuis le nom (sale) de la scène.
+
+    On retire du nom les segments connus (préfixe, entité, tâche, av, version)
+    et on garde le reste, qui contient le nom d'artiste (et d'éventuels
+    suffixes).
+    """
+    if not scene_name:
+        return ""
+    known = {(node.project or "").lower(),
+             (node.task_name or "").lower(),
+             task_display(node.task_name).lower()}
+    for tok in (node.entity_name or "").split("_"):
+        known.add(tok.lower())
+    if node.av_name:
+        known.add(node.av_name.lower())
+    known.discard("")
+
+    remaining = []
+    for tok in scene_name.split("_"):
+        low = tok.lower()
+        if not low or low in known or re.fullmatch(r"v\d+", low):
+            continue
+        remaining.append(tok)
+    return "_".join(remaining)
 
 
 def _input_is_stale(asset, asset_stream_max):
@@ -432,34 +471,42 @@ def _input_is_stale(asset, asset_stream_max):
 
 
 def _propagate_status(result, node_inputs, assets, asset_stream_max):
-    """Coloration par propagation.
+    """Coloration par propagation à trois états.
 
-    Graine : tout nœud important au moins un asset supplanté (comparé à la
-    dernière version exportée de cet asset). La couleur rouge se propage
-    ensuite vers l'aval (parent -> enfant) : un nœud construit sur un input
-    périmé — même indirectement — est périmé lui aussi.
+    * ``stale`` (rouge) : le nœud importe au moins un asset supplanté (comparé
+      à la dernière version exportée de cet asset) ;
+    * ``inherited`` (orange) : ses inputs directs sont à jour, mais un de ses
+      ancêtres (amont) est obsolète — obsolète par héritage uniquement ;
+    * ``ok`` (vert) : à jour et aucun ancêtre obsolète.
     """
-    red = set()
-    for key, node in result.nodes.items():
+    direct_stale = set()
+    for key in result.nodes:
         for pid in node_inputs.get(key, ()):
             if _input_is_stale(assets.get(pid), asset_stream_max):
-                red.add(key)
+                direct_stale.add(key)
                 break
 
     children = defaultdict(list)
     for top_key, bottom_key in result.edges:
         children[top_key].append(bottom_key)
 
-    stack = list(red)
+    # Propagation de l'obsolescence vers l'aval (rouge ET orange se propagent).
+    obsolete = set(direct_stale)
+    stack = list(direct_stale)
     while stack:
         key = stack.pop()
         for child in children.get(key, ()):
-            if child not in red:
-                red.add(child)
+            if child not in obsolete:
+                obsolete.add(child)
                 stack.append(child)
 
     for key, node in result.nodes.items():
-        node.status = "stale" if key in red else "ok"
+        if key in direct_stale:
+            node.status = "stale"
+        elif key in obsolete:
+            node.status = "inherited"
+        else:
+            node.status = "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -467,21 +514,33 @@ def _propagate_status(result, node_inputs, assets, asset_stream_max):
 # ---------------------------------------------------------------------------
 
 def _assign_layout(result):
-    """Assigne node.row (rang de tâche compacté) et node.col (ordre)."""
+    """Assigne node.row (rang de tâche compacté) et node.col (ordre).
+
+    La scène interrogée (S0) est toujours placée sur la ligne la plus basse,
+    quelle que soit sa tâche.
+    """
     nodes = result.nodes
     if not nodes:
         return
 
-    # Rangs de tâche présents -> lignes compactées (pas de trous).
-    ranks_present = sorted({n.task_rank for n in nodes.values()})
+    # La scène de départ reçoit un rang strictement inférieur à toute tâche
+    # (connue ou inconnue) pour se retrouver tout en bas du graphe.
+    start_key = result.start_key
+    _BOTTOM_RANK = _UNKNOWN_RANK + 1
+
+    def eff_rank(node):
+        return _BOTTOM_RANK if node.key == start_key else node.task_rank
+
+    # Rangs présents -> lignes compactées (pas de trous).
+    ranks_present = sorted({eff_rank(n) for n in nodes.values()})
     rank_to_row = {rank: i for i, rank in enumerate(ranks_present)}
     for node in nodes.values():
-        node.row = rank_to_row[node.task_rank]
+        node.row = rank_to_row[eff_rank(node)]
 
     # Libellés de ligne : nom de tâche représentatif par rang.
     rank_label = {}
     for node in nodes.values():
-        rank_label.setdefault(node.task_rank, node.task_name or "?")
+        rank_label.setdefault(eff_rank(node), node.task_name or "?")
     result.row_tasks = {
         rank_to_row[rank]: (TASK_ORDER[rank] if rank < len(TASK_ORDER)
                             else rank_label[rank])

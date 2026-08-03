@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 import data_source as ds
 import graph_model as gm
 from graph_view import (
+    COL_INHERITED_BORDER,
     COL_OK_BORDER,
     COL_STALE_BORDER,
     COL_START_BORDER,
@@ -279,7 +280,8 @@ class MainWindow(QMainWindow):
             lay.addWidget(QLabel(text))
 
         swatch(COL_OK_BORDER, "à jour")
-        swatch(COL_STALE_BORDER, "périmé")
+        swatch(COL_STALE_BORDER, "input périmé")
+        swatch(COL_INHERITED_BORDER, "périmé par héritage")
         swatch(COL_START_BORDER, "scène de départ", border=True)
         lay.addStretch(1)
         tip = QLabel("Survol : dépendances directes · Molette : zoom · "
