@@ -151,6 +151,28 @@ def _import_mysql_driver():
         ) from exc
 
 
+def _available_driver():
+    """Nom du connecteur disponible ('mariadb' / 'pymysql' / None)."""
+    try:
+        return _import_mysql_driver()[0]
+    except DataSourceError:
+        return None
+
+
+def _connect_error_message(exc):
+    """Message d'erreur de connexion, avec l'hôte, le connecteur et un indice."""
+    driver = _available_driver()
+    if driver == "mariadb":
+        extra = ""
+    else:
+        extra = (" The 'mariadb' connector is not installed, so the pymysql "
+                 "fallback (plain TCP) was used — run 'pip install mariadb' "
+                 "to use the MariaDB connector.")
+    return (f"Cannot connect to MySQL at host '{mysql_host()}' "
+            f"(set the MYSQL_HOST environment variable to change it).{extra} "
+            f"Details: {exc}")
+
+
 class _MysqlSession:
     """Contexte de connexion (modèle fourni), curseur en mode dictionnaire.
 
@@ -202,7 +224,7 @@ def test_mysql_connection(config):
     except DataSourceError as exc:
         return False, str(exc)
     except Exception as exc:  # jamais le mot de passe dans le message
-        return False, f"Cannot connect to MySQL: {exc}"
+        return False, _connect_error_message(exc)
 
 
 def load_from_mysql(config):
@@ -243,7 +265,7 @@ def load_from_mysql(config):
     except DataSourceError:
         raise
     except Exception as exc:
-        raise DataSourceError(f"MySQL error: {exc}") from exc
+        raise DataSourceError(_connect_error_message(exc)) from exc
     return assets, scenes, binds
 
 
