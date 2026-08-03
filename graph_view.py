@@ -47,8 +47,8 @@ COL_OK_FILL = QColor("#c2e7cf")        # vert pastel
 COL_OK_BORDER = QColor("#8ccaa4")
 COL_STALE_FILL = QColor("#f3c1ba")     # rouge/rose pastel
 COL_STALE_BORDER = QColor("#e0988d")
-COL_INHERITED_FILL = QColor("#f6ddb2") # pêche pastel
-COL_INHERITED_BORDER = QColor("#e3bd80")
+COL_INHERITED_FILL = QColor("#f3edad") # jaune pastel
+COL_INHERITED_BORDER = QColor("#d4c95f")
 COL_START_BORDER = QColor("#d9a93f")   # or, accent de la scène interrogée
 
 # Couleur du texte d'un output/input selon sa fraîcheur (foncé sur pastel).

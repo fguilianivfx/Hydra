@@ -25,6 +25,7 @@ indépendamment de la source.
 from __future__ import annotations
 
 import csv
+import os
 import re
 
 # csv peut rencontrer des tuples très longs dans un dump SQL : on relève la
@@ -122,73 +123,102 @@ def _scene_from_mapping(get):
 
 
 # ---------------------------------------------------------------------------
-# Source 1 : MySQL / MariaDB (le serveur administré par phpMyAdmin)
+# Source 1 : MySQL / MariaDB
 # ---------------------------------------------------------------------------
+# L'hôte n'est PAS demandé dans l'UI : il vient de la variable
+# d'environnement MYSQL_HOST (défaut 127.0.0.1). Seuls l'utilisateur et le
+# mot de passe sont saisis. La base par défaut est « dd_assets_tracking ».
 
-def _connect_mysql(config):
-    """Ouvre une connexion PyMySQL. Ne journalise jamais le mot de passe."""
+def mysql_host():
+    """Hôte MySQL, lu depuis $MYSQL_HOST (défaut 127.0.0.1)."""
+    return os.environ.get("MYSQL_HOST", "127.0.0.1")
+
+
+def _import_mysql_driver():
+    """Importe le connecteur : mariadb en priorité, pymysql en repli."""
+    try:
+        import mariadb
+        return "mariadb", mariadb
+    except ImportError:
+        pass
     try:
         import pymysql
-        from pymysql.cursors import DictCursor
+        return "pymysql", pymysql
     except ImportError as exc:  # pragma: no cover - dépendance manquante
         raise DataSourceError(
-            "The 'pymysql' module is required for the MySQL source "
-            "(pip install pymysql)."
+            "The 'mariadb' module is required for the MySQL source "
+            "(pip install mariadb). 'pymysql' is used as a fallback."
         ) from exc
 
-    try:
-        return pymysql.connect(
-            host=config.get("host") or "127.0.0.1",
-            port=int(config.get("port") or 3306),
-            user=config.get("user") or "",
-            password=config.get("password") or "",
-            database=config.get("database") or "",
-            charset="utf8mb4",
-            cursorclass=DictCursor,
-            connect_timeout=int(config.get("timeout") or 10),
-        )
-    except Exception as exc:  # pymysql.Error et divers
-        # On expose le message d'erreur mais jamais le mot de passe.
-        raise DataSourceError(f"Cannot connect to MySQL: {exc}") from exc
+
+class _MysqlSession:
+    """Contexte de connexion (modèle fourni), curseur en mode dictionnaire.
+
+    Le mot de passe reste en mémoire : il n'est ni écrit sur disque ni
+    journalisé.
+    """
+
+    def __init__(self, config):
+        self._config = config
+        self.conn = None
+        self.cursor = None
+
+    def __enter__(self):
+        user = self._config.get("user") or ""
+        password = self._config.get("password") or ""
+        database = self._config.get("database") or "dd_assets_tracking"
+        kind, driver = _import_mysql_driver()
+        if kind == "mariadb":
+            self.conn = driver.connect(
+                host=mysql_host(), user=user, password=password,
+                database=database, autocommit=True,
+            )
+            self.cursor = self.conn.cursor(dictionary=True)
+        else:  # pymysql (repli)
+            self.conn = driver.connect(
+                host=mysql_host(), user=user, password=password,
+                database=database, charset="utf8mb4",
+                cursorclass=driver.cursors.DictCursor, autocommit=True,
+            )
+            self.cursor = self.conn.cursor()
+        return self.cursor
+
+    def __exit__(self, exc_type, exc, tb):
+        try:
+            if self.cursor is not None:
+                self.cursor.close()
+        finally:
+            if self.conn is not None:
+                self.conn.close()
 
 
 def test_mysql_connection(config):
     """Teste la connexion. Renvoie (ok: bool, message: str)."""
-    conn = None
     try:
-        conn = _connect_mysql(config)
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1")
-            cur.fetchone()
+        with _MysqlSession(config) as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
         return True, "Connection successful."
     except DataSourceError as exc:
         return False, str(exc)
-    except Exception as exc:  # pragma: no cover - robustesse
-        return False, f"Failure: {exc}"
-    finally:
-        if conn is not None:
-            try:
-                conn.close()
-            except Exception:
-                pass
+    except Exception as exc:  # jamais le mot de passe dans le message
+        return False, f"Cannot connect to MySQL: {exc}"
 
 
 def load_from_mysql(config):
-    """Charge assets/scenes/binds depuis MySQL.
+    """Charge assets/scenes/binds depuis MySQL/MariaDB.
 
-    Toutes les requêtes sont statiques (aucune concaténation d'entrée
-    utilisateur) : pas de risque d'injection. Les tables sont lues d'un
-    seul coup puis indexées en mémoire par graph_model.
+    Requêtes statiques (aucune concaténation d'entrée utilisateur). Les
+    tables sont lues d'un seul coup puis indexées en mémoire par graph_model.
     """
-    conn = _connect_mysql(config)
+    assets, scenes, binds = {}, {}, []
     try:
-        assets, scenes, binds = {}, {}, []
-        with conn.cursor() as cur:
-            cur.execute(
+        with _MysqlSession(config) as cursor:
+            cursor.execute(
                 "SELECT id, project, entity_name, task_name, av_name, "
                 "node_name, version FROM assets"
             )
-            for row in cur.fetchall():
+            for row in cursor.fetchall():
                 aid = to_int(row.get("id"))
                 if aid is None:
                     continue
@@ -196,30 +226,25 @@ def load_from_mysql(config):
 
             # SELECT * : récupère aussi une éventuelle colonne « graphiste »
             # (artist/user/created_by…) sans échouer si elle est absente.
-            cur.execute("SELECT * FROM scenes")
-            for row in cur.fetchall():
+            cursor.execute("SELECT * FROM scenes")
+            for row in cursor.fetchall():
                 sid = to_int(row.get("id"))
                 if sid is None:
                     continue
                 scenes[sid] = _scene_from_mapping(row.get)
 
-            cur.execute("SELECT asset_id, scene_id, active FROM binds")
-            for row in cur.fetchall():
+            cursor.execute("SELECT asset_id, scene_id, active FROM binds")
+            for row in cursor.fetchall():
                 aid = to_int(row.get("asset_id"))
                 sid = to_int(row.get("scene_id"))
                 if aid is None or sid is None:
                     continue
                 binds.append((aid, sid, row.get("active")))
-        return assets, scenes, binds
     except DataSourceError:
         raise
     except Exception as exc:
-        raise DataSourceError(f"MySQL read error: {exc}") from exc
-    finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        raise DataSourceError(f"MySQL error: {exc}") from exc
+    return assets, scenes, binds
 
 
 # ---------------------------------------------------------------------------

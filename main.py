@@ -26,7 +26,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QSpinBox,
     QSplitter,
     QTabWidget,
     QVBoxLayout,
@@ -141,10 +140,7 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(6)
 
-        self.my_host = QLineEdit("127.0.0.1")
-        self.my_port = QSpinBox()
-        self.my_port.setRange(1, 65535)
-        self.my_port.setValue(3306)
+        # L'hôte n'est pas demandé : il vient de $MYSQL_HOST.
         self.my_db = QLineEdit("dd_assets_tracking")
         self.my_user = QLineEdit()
         self.my_pass = QLineEdit()
@@ -156,22 +152,17 @@ class MainWindow(QMainWindow):
             lambda on: self.my_pass.setEchoMode(
                 QLineEdit.Normal if on else QLineEdit.Password))
 
-        grid.addWidget(QLabel("Host"), 0, 0)
-        grid.addWidget(self.my_host, 0, 1)
-        grid.addWidget(QLabel("Port"), 0, 2)
-        grid.addWidget(self.my_port, 0, 3)
+        grid.addWidget(QLabel("Database"), 0, 0)
+        grid.addWidget(self.my_db, 0, 1, 1, 3)
 
-        grid.addWidget(QLabel("Database"), 1, 0)
-        grid.addWidget(self.my_db, 1, 1, 1, 3)
+        grid.addWidget(QLabel("User"), 1, 0)
+        grid.addWidget(self.my_user, 1, 1, 1, 3)
 
-        grid.addWidget(QLabel("User"), 2, 0)
-        grid.addWidget(self.my_user, 2, 1, 1, 3)
-
-        grid.addWidget(QLabel("Password"), 3, 0)
+        grid.addWidget(QLabel("Password"), 2, 0)
         pass_row = QHBoxLayout()
         pass_row.addWidget(self.my_pass, 1)
         pass_row.addWidget(show)
-        grid.addLayout(pass_row, 3, 1, 1, 3)
+        grid.addLayout(pass_row, 2, 1, 1, 3)
 
         self.my_remember = QCheckBox("Remember (system keyring)")
         if not _HAS_KEYRING:
@@ -179,15 +170,19 @@ class MainWindow(QMainWindow):
             self.my_remember.setToolTip(
                 "Install the 'keyring' module to enable this option. "
                 "Without it, no password is ever written to disk.")
-        grid.addWidget(self.my_remember, 4, 1, 1, 3)
+        grid.addWidget(self.my_remember, 3, 1, 1, 3)
 
         btn_test = QPushButton("Test connection")
         btn_test.clicked.connect(self._on_test_connection)
-        grid.addWidget(btn_test, 5, 1)
+        grid.addWidget(btn_test, 4, 1)
 
         self.my_status = QLabel("")
         self.my_status.setWordWrap(True)
-        grid.addWidget(self.my_status, 5, 2, 1, 2)
+        grid.addWidget(self.my_status, 4, 2, 1, 2)
+
+        host_hint = QLabel(f"Host: ${{MYSQL_HOST}} (currently {ds.mysql_host()})")
+        host_hint.setStyleSheet("color:#8a93a0;")
+        grid.addWidget(host_hint, 5, 0, 1, 4)
 
         grid.setColumnStretch(1, 1)
         return w
@@ -330,9 +325,8 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ MySQL ----
     def _mysql_config(self):
+        # L'hôte vient de $MYSQL_HOST (data_source.mysql_host), pas de l'UI.
         return {
-            "host": self.my_host.text().strip(),
-            "port": self.my_port.value(),
             "database": self.my_db.text().strip(),
             "user": self.my_user.text().strip(),
             "password": self.my_pass.text(),   # jamais journalisé
@@ -359,8 +353,7 @@ class MainWindow(QMainWindow):
         src = self._current_source()
         if src == "mysql":
             cfg = self._mysql_config()
-            return ("mysql", cfg["host"], cfg["port"], cfg["database"],
-                    cfg["user"], cfg["password"])
+            return ("mysql", cfg["database"], cfg["user"], cfg["password"])
         if src == "csv":
             return ("csv", self.csv_assets.text(), self.csv_scenes.text(),
                     self.csv_binds.text())
@@ -449,8 +442,6 @@ class MainWindow(QMainWindow):
 
     def _restore_settings(self):
         s = self._settings
-        self.my_host.setText(s.value("mysql/host", "127.0.0.1"))
-        self.my_port.setValue(int(s.value("mysql/port", 3306)))
         self.my_db.setText(s.value("mysql/database", "dd_assets_tracking"))
         self.my_user.setText(s.value("mysql/user", ""))
         self.csv_assets.setText(s.value("csv/assets", ""))
@@ -476,8 +467,6 @@ class MainWindow(QMainWindow):
 
     def _save_settings(self):
         s = self._settings
-        s.setValue("mysql/host", self.my_host.text())
-        s.setValue("mysql/port", self.my_port.value())
         s.setValue("mysql/database", self.my_db.text())
         s.setValue("mysql/user", self.my_user.text())
         s.setValue("csv/assets", self.csv_assets.text())

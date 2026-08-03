@@ -14,7 +14,7 @@ scènes dont elle dépend, coloré selon leur fraîcheur.
   séparés par un trait, le flux descendant ; lignes **réordonnables** en
   glissant leur poignée à gauche ; la **scène interrogée** reste tout en bas ;
 * couleur du nœud par **propagation** : **vert** = tous les inputs à jour ·
-  **rouge** = importe au moins un asset supplanté · **orange** = obsolète *par
+  **rouge** = importe au moins un asset supplanté · **jaune** = obsolète *par
   héritage* seulement (ses inputs sont à jour mais un ancêtre est obsolète) ;
 * nœuds **déplaçables horizontalement** (le Y reste verrouillé sur la ligne
   de la tâche) ; **survol** = dépendances directes mises en évidence + nom du
@@ -37,10 +37,13 @@ source .venv/bin/activate        # Windows : .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-`requirements.txt` contient uniquement `PySide6` et `pymysql`.
+`requirements.txt` contient `PySide6`, `mariadb` et `pymysql`. Le connecteur
+`mariadb` (celui utilisé pour se connecter) nécessite la bibliothèque système
+**MariaDB Connector/C** ; si `mariadb` n'est pas importable, l'appli bascule
+automatiquement sur `pymysql` (100 % Python).
 
 > Le module `keyring` est **optionnel** : s'il est installé, la case
-> « Se souvenir » enregistre le mot de passe MySQL dans le **trousseau
+> « Remember » enregistre le mot de passe MySQL dans le **trousseau
 > système**. Sans lui, **aucun mot de passe n'est jamais écrit sur disque**.
 
 ## Lancement
@@ -68,23 +71,24 @@ sélectionnez `sample_data`, puis graphez `qua_077_02000_comp_v019`.
 Toutes renvoient les mêmes structures en mémoire (voir `data_source.py`), donc
 toute la logique de graphe est indépendante de la provenance.
 
-### 1. Base phpMyAdmin (MySQL / MariaDB)
+### 1. MySQL / MariaDB
 
-Connexion directe au serveur MySQL/MariaDB administré par phpMyAdmin.
+Connexion directe au serveur MySQL/MariaDB (via le connecteur `mariadb`,
+`autocommit=True`, curseur en mode dictionnaire).
 
 | Champ         | Défaut               |
 |---------------|----------------------|
-| Hôte          | `127.0.0.1`          |
-| Port          | `3306`               |
-| Base          | `dd_assets_tracking` |
-| Utilisateur   | *(login)*            |
-| Mot de passe  | *(masqué)*           |
+| Database      | `dd_assets_tracking` |
+| User          | *(login)*            |
+| Password      | *(masqué)*           |
 
-* Bouton **Tester la connexion** (retour succès / erreur) avant de charger.
+* **L'hôte n'est pas demandé** : il est lu depuis la variable
+  d'environnement **`MYSQL_HOST`** (défaut `127.0.0.1`). L'onglet affiche
+  l'hôte effectivement utilisé.
+* Bouton **Test connection** (retour succès / erreur) avant de charger.
 * Le mot de passe **reste en mémoire uniquement** : il n'est ni écrit sur
   disque ni journalisé (sauf trousseau système via `keyring`, sur demande).
-* Les requêtes sont **statiques / paramétrées** — aucune concaténation
-  d'entrée utilisateur.
+* Les requêtes sont **statiques** — aucune concaténation d'entrée utilisateur.
 
 ### 2. Fichiers CSV (hors-ligne)
 
@@ -172,12 +176,12 @@ version est la dernière version exportée de cet asset.
 
 * **vert** — tous les inputs sont à jour *et* aucun ancêtre n'est obsolète ;
 * **rouge** — le nœud importe au moins un asset supplanté (input périmé) ;
-* **orange** — obsolète **par héritage uniquement** : ses inputs directs sont à
+* **jaune** — obsolète **par héritage uniquement** : ses inputs directs sont à
   jour, mais un de ses ancêtres (amont) est obsolète.
 
 L'obsolescence se **propage vers l'aval** : un nœud construit, même
 indirectement, sur une dépendance périmée est signalé (rouge s'il importe
-directement un asset périmé, sinon orange).
+directement un asset périmé, sinon jaune).
 
 > Nuance : le nœud à l'origine d'une republication (ex. un `modeling` dont un
 > `v007` existe alors que le graphe tire le `v005`) reste **vert** — ses
@@ -192,7 +196,7 @@ directement un asset périmé, sinon orange).
 |---------------------------------|--------------------------------------------|
 | **Glisser** un nœud             | Réordonner (déplacement **horizontal** seul)|
 | **Glisser la poignée** de ligne (à gauche) | **Réordonner les lignes** de tâche (vertical) |
-| **Survol** d'un nœud            | Dépendances directes + nom du **graphiste** |
+| **Survol** d'un nœud            | Dépendances directes + graphiste + inputs/outputs avec versions `(vXXX)` ou `(vXXX → vYYY)` |
 | **Molette**                     | Zoom (ancré sous le curseur)               |
 | **Bouton du milieu** + glisser  | Déplacement (pan)                          |
 | **Recentrer** (`Ctrl+0`)        | Ajuste le zoom pour tout voir              |
