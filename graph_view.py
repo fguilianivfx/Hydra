@@ -37,23 +37,24 @@ from PySide6.QtWidgets import (
 
 # --- Palette (dark, sobre) --------------------------------------------------
 COL_BG = QColor("#14171b")
-COL_TITLE = QColor("#eef1f5")
-COL_META_START = QColor("#f0c96a")
+COL_TITLE = QColor("#ffffff")
+COL_META_START = QColor("#fff3d4")
 COL_ROW_LABEL = QColor("#7b8593")
 COL_ROW_GUIDE = QColor(255, 255, 255, 12)
 
-# Fond / bordure du nœud selon son statut de propagation.
-COL_OK_FILL = QColor("#22402f")
-COL_OK_BORDER = QColor("#4fa06d")
-COL_STALE_FILL = QColor("#46282b")
-COL_STALE_BORDER = QColor("#c9564e")
-COL_INHERITED_FILL = QColor("#4a381f")
-COL_INHERITED_BORDER = QColor("#d0913f")
-COL_START_BORDER = QColor("#e6b84c")
+# Fond / bordure du nœud selon son statut de propagation (couleurs vives).
+COL_OK_FILL = QColor("#26a24e")
+COL_OK_BORDER = QColor("#6bec91")
+COL_STALE_FILL = QColor("#d83a2d")
+COL_STALE_BORDER = QColor("#ff8575")
+COL_INHERITED_FILL = QColor("#e78e12")
+COL_INHERITED_BORDER = QColor("#ffc84f")
+COL_START_BORDER = QColor("#ffd23d")
 
-# Couleur du texte d'un output selon sa fraîcheur.
-COL_ASSET_OK = QColor("#7fd39b")
-COL_ASSET_STALE = QColor("#ef8a80")
+# Couleur du texte d'un output selon sa fraîcheur (vif, + ombre pour lisibilité).
+COL_ASSET_OK = QColor("#6effa0")
+COL_ASSET_STALE = QColor("#ff7a66")
+COL_TEXT_SHADOW = QColor(0, 0, 0, 160)
 
 COL_EDGE_DEFAULT = QColor(172, 180, 192, 90)
 COL_EDGE_FADED = QColor(150, 158, 170, 28)
@@ -103,6 +104,14 @@ def _fit_output_line(name, suffix, fm, max_w):
         return name + suffix
     name_max = max(10.0, max_w - fm.horizontalAdvance(suffix))
     return fm.elidedText(name, Qt.ElideRight, name_max) + suffix
+
+
+def _draw_text_shadowed(painter, x, y, text, color):
+    """Texte avec une légère ombre portée, pour rester lisible sur fond vif."""
+    painter.setPen(QPen(COL_TEXT_SHADOW))
+    painter.drawText(QPointF(x + 0.8, y + 0.9), text)
+    painter.setPen(QPen(color))
+    painter.drawText(QPointF(x, y), text)
 
 
 def _wrap(words, sep, fm, max_w):
@@ -390,10 +399,9 @@ class SceneNodeItem(QGraphicsObject):
 
         fm_title = QFontMetricsF(self._title_font)
         painter.setFont(self._title_font)
-        painter.setPen(QPen(COL_TITLE))
         for line in self._title_lines:
             y += fm_title.ascent()
-            painter.drawText(QPointF(x, y), line)
+            _draw_text_shadowed(painter, x, y, line, COL_TITLE)
             y += fm_title.descent() + fm_title.leading()
 
         if self._meta_lines:
@@ -402,8 +410,7 @@ class SceneNodeItem(QGraphicsObject):
             painter.setFont(self._meta_font)
             for text, color in self._meta_lines:
                 y += fm_meta.ascent()
-                painter.setPen(QPen(color))
-                painter.drawText(QPointF(x, y), text)
+                _draw_text_shadowed(painter, x, y, text, color)
                 y += fm_meta.descent() + fm_meta.leading()
 
         if self._output_lines:
@@ -412,8 +419,7 @@ class SceneNodeItem(QGraphicsObject):
             painter.setFont(self._sub_font)
             for text, color in self._output_lines:
                 y += fm_out.ascent()
-                painter.setPen(QPen(color))
-                painter.drawText(QPointF(x, y), text)
+                _draw_text_shadowed(painter, x, y, text, color)
                 y += fm_out.descent() + fm_out.leading()
 
 
