@@ -126,12 +126,16 @@ def _scene_from_mapping(get):
 # Source 1 : MySQL / MariaDB
 # ---------------------------------------------------------------------------
 # L'hôte n'est PAS demandé dans l'UI : il vient de la variable
-# d'environnement MYSQL_HOST (défaut 127.0.0.1). Seuls l'utilisateur et le
-# mot de passe sont saisis. La base par défaut est « dd_assets_tracking ».
+# d'environnement MYSQL_HOST, avec le serveur du studio en défaut. Seuls
+# l'utilisateur et le mot de passe sont saisis. Base par défaut :
+# « dd_assets_tracking ».
+
+_DEFAULT_MYSQL_HOST = "dd-intra.ddprs.net"
+
 
 def mysql_host():
-    """Hôte MySQL, lu depuis $MYSQL_HOST (défaut 127.0.0.1)."""
-    return os.environ.get("MYSQL_HOST", "127.0.0.1")
+    """Hôte MySQL : $MYSQL_HOST, sinon le serveur du studio."""
+    return os.environ.get("MYSQL_HOST", _DEFAULT_MYSQL_HOST)
 
 
 def _import_mysql_driver():
