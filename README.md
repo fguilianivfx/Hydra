@@ -76,18 +76,19 @@ toute la logique de graphe est indépendante de la provenance.
 Connexion directe au serveur MySQL/MariaDB (via le connecteur `mariadb`,
 `autocommit=True`, curseur en mode dictionnaire).
 
-| Champ         | Défaut               |
-|---------------|----------------------|
-| Database      | `dd_assets_tracking` |
-| User          | *(login)*            |
-| Password      | *(masqué)*           |
+Seuls **User** et **Password** sont saisis.
 
-* **L'hôte n'est pas demandé** : il est lu depuis la variable
-  d'environnement **`MYSQL_HOST`** (défaut `dd-intra`). L'onglet rappelle
-  l'hôte **et** la base réellement utilisés.
-* ⚠ Le champ **Database** attend le nom de la **base** (`dd_assets_tracking`),
-  pas celui du serveur ; l'appli le signale si une valeur ressemble à un nom
-  d'hôte.
+| Paramètre | Source                          | Défaut               |
+|-----------|---------------------------------|----------------------|
+| Hôte      | variable `MYSQL_HOST`           | `dd-intra`           |
+| Base      | variable `MYSQL_DATABASE`       | `dd_assets_tracking` |
+| User      | *saisi*                         | —                    |
+| Password  | *saisi* (masqué)                | —                    |
+
+L'hôte et la base ne sont **pas** demandés dans l'UI (l'onglet rappelle les
+valeurs utilisées) : cela évite de confondre le nom du serveur avec celui de
+la base. Pour pointer ailleurs, définissez les variables d'environnement
+avant de lancer l'appli.
 * Bouton **Test connection** (retour succès / erreur) avant de charger.
 * Le mot de passe **reste en mémoire uniquement** : il n'est ni écrit sur
   disque ni journalisé (sauf trousseau système via `keyring`, sur demande).

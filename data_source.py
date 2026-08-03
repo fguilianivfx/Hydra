@@ -139,6 +139,11 @@ def mysql_host():
     return os.environ.get("MYSQL_HOST", _DEFAULT_MYSQL_HOST)
 
 
+def mysql_database():
+    """Base MySQL : $MYSQL_DATABASE, sinon dd_assets_tracking."""
+    return os.environ.get("MYSQL_DATABASE", DEFAULT_DATABASE)
+
+
 def _import_mysql_driver():
     """Importe le connecteur : mariadb en priorité, pymysql en repli."""
     try:
@@ -193,7 +198,7 @@ class _MysqlSession:
     def __enter__(self):
         user = self._config.get("user") or ""
         password = self._config.get("password") or ""
-        database = self._config.get("database") or DEFAULT_DATABASE
+        database = self._config.get("database") or mysql_database()
         kind, driver = _import_mysql_driver()
         if kind == "mariadb":
             self.conn = driver.connect(

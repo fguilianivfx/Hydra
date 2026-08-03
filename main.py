@@ -140,12 +140,8 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(6)
 
-        # L'hôte n'est pas demandé : il vient de $MYSQL_HOST.
-        self.my_db = QLineEdit(ds.DEFAULT_DATABASE)
-        self.my_db.setPlaceholderText(ds.DEFAULT_DATABASE)
-        self.my_db.setToolTip(
-            "Database name (not the server). "
-            f"Default: {ds.DEFAULT_DATABASE}")
+        # Ni l'hôte ni la base ne sont demandés : ils viennent de
+        # $MYSQL_HOST / $MYSQL_DATABASE (voir data_source).
         self.my_user = QLineEdit()
         self.my_pass = QLineEdit()
         self.my_pass.setEchoMode(QLineEdit.Password)
@@ -156,17 +152,14 @@ class MainWindow(QMainWindow):
             lambda on: self.my_pass.setEchoMode(
                 QLineEdit.Normal if on else QLineEdit.Password))
 
-        grid.addWidget(QLabel("Database"), 0, 0)
-        grid.addWidget(self.my_db, 0, 1, 1, 3)
+        grid.addWidget(QLabel("User"), 0, 0)
+        grid.addWidget(self.my_user, 0, 1, 1, 3)
 
-        grid.addWidget(QLabel("User"), 1, 0)
-        grid.addWidget(self.my_user, 1, 1, 1, 3)
-
-        grid.addWidget(QLabel("Password"), 2, 0)
+        grid.addWidget(QLabel("Password"), 1, 0)
         pass_row = QHBoxLayout()
         pass_row.addWidget(self.my_pass, 1)
         pass_row.addWidget(show)
-        grid.addLayout(pass_row, 2, 1, 1, 3)
+        grid.addLayout(pass_row, 1, 1, 1, 3)
 
         self.my_remember = QCheckBox("Remember (system keyring)")
         if not _HAS_KEYRING:
@@ -174,38 +167,24 @@ class MainWindow(QMainWindow):
             self.my_remember.setToolTip(
                 "Install the 'keyring' module to enable this option. "
                 "Without it, no password is ever written to disk.")
-        grid.addWidget(self.my_remember, 3, 1, 1, 3)
+        grid.addWidget(self.my_remember, 2, 1, 1, 3)
 
         btn_test = QPushButton("Test connection")
         btn_test.clicked.connect(self._on_test_connection)
-        grid.addWidget(btn_test, 4, 1)
+        grid.addWidget(btn_test, 3, 1)
 
         self.my_status = QLabel("")
         self.my_status.setWordWrap(True)
-        grid.addWidget(self.my_status, 4, 2, 1, 2)
+        grid.addWidget(self.my_status, 3, 2, 1, 2)
 
-        self.my_host_hint = QLabel()
-        self.my_host_hint.setStyleSheet("color:#8a93a0;")
-        self.my_host_hint.setWordWrap(True)
-        self._refresh_host_hint()
-        self.my_db.textChanged.connect(self._refresh_host_hint)
-        grid.addWidget(self.my_host_hint, 5, 0, 1, 4)
+        hint = QLabel(f"Host: {ds.mysql_host()} (${{MYSQL_HOST}}) · "
+                      f"Database: {ds.mysql_database()} (${{MYSQL_DATABASE}})")
+        hint.setStyleSheet("color:#8a93a0;")
+        hint.setWordWrap(True)
+        grid.addWidget(hint, 4, 0, 1, 4)
 
         grid.setColumnStretch(1, 1)
         return w
-
-    def _refresh_host_hint(self):
-        """Rappelle l'hôte et la base utilisés, et signale une confusion."""
-        host = ds.mysql_host()
-        database = self.my_db.text().strip()
-        text = (f"Host: ${{MYSQL_HOST}} (currently {host}) · "
-                f"Database: {database or ds.DEFAULT_DATABASE}")
-        # Le champ « Database » reçoit parfois un nom de serveur par erreur.
-        if database and (database == host or "." in database):
-            text += (f"\n⚠ \"{database}\" looks like a server name. "
-                     f"Database should be e.g. {ds.DEFAULT_DATABASE}; "
-                     "the host comes from $MYSQL_HOST.")
-        self.my_host_hint.setText(text)
 
     def _build_csv_tab(self):
         w = QWidget()
@@ -347,7 +326,7 @@ class MainWindow(QMainWindow):
     def _mysql_config(self):
         # L'hôte vient de $MYSQL_HOST (data_source.mysql_host), pas de l'UI.
         return {
-            "database": self.my_db.text().strip(),
+            "database": ds.mysql_database(),
             "user": self.my_user.text().strip(),
             "password": self.my_pass.text(),   # jamais journalisé
         }
@@ -462,7 +441,9 @@ class MainWindow(QMainWindow):
 
     def _restore_settings(self):
         s = self._settings
-        self.my_db.setText(s.value("mysql/database", "dd_assets_tracking"))
+        # Ancien réglage devenu obsolète (la base vient de $MYSQL_DATABASE) :
+        # on le purge pour qu'une valeur erronée ne traîne pas.
+        s.remove("mysql/database")
         self.my_user.setText(s.value("mysql/user", ""))
         self.csv_assets.setText(s.value("csv/assets", ""))
         self.csv_scenes.setText(s.value("csv/scenes", ""))
@@ -487,7 +468,6 @@ class MainWindow(QMainWindow):
 
     def _save_settings(self):
         s = self._settings
-        s.setValue("mysql/database", self.my_db.text())
         s.setValue("mysql/user", self.my_user.text())
         s.setValue("csv/assets", self.csv_assets.text())
         s.setValue("csv/scenes", self.csv_scenes.text())
