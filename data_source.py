@@ -132,7 +132,7 @@ def _connect_mysql(config):
         from pymysql.cursors import DictCursor
     except ImportError as exc:  # pragma: no cover - dépendance manquante
         raise DataSourceError(
-            "Le module 'pymysql' est requis pour la source MySQL "
+            "The 'pymysql' module is required for the MySQL source "
             "(pip install pymysql)."
         ) from exc
 
@@ -149,7 +149,7 @@ def _connect_mysql(config):
         )
     except Exception as exc:  # pymysql.Error et divers
         # On expose le message d'erreur mais jamais le mot de passe.
-        raise DataSourceError(f"Connexion MySQL impossible : {exc}") from exc
+        raise DataSourceError(f"Cannot connect to MySQL: {exc}") from exc
 
 
 def test_mysql_connection(config):
@@ -160,11 +160,11 @@ def test_mysql_connection(config):
         with conn.cursor() as cur:
             cur.execute("SELECT 1")
             cur.fetchone()
-        return True, "Connexion réussie."
+        return True, "Connection successful."
     except DataSourceError as exc:
         return False, str(exc)
     except Exception as exc:  # pragma: no cover - robustesse
-        return False, f"Échec : {exc}"
+        return False, f"Failure: {exc}"
     finally:
         if conn is not None:
             try:
@@ -214,7 +214,7 @@ def load_from_mysql(config):
     except DataSourceError:
         raise
     except Exception as exc:
-        raise DataSourceError(f"Erreur de lecture MySQL : {exc}") from exc
+        raise DataSourceError(f"MySQL read error: {exc}") from exc
     finally:
         try:
             conn.close()
@@ -232,17 +232,18 @@ def _read_csv_rows(path, table):
         f = open(path, "r", encoding="utf-8-sig", newline="")
     except OSError as exc:
         raise DataSourceError(
-            f"Impossible d'ouvrir le CSV « {table} » : {exc}"
+            f"Cannot open the \"{table}\" CSV: {exc}"
         ) from exc
     with f:
         reader = csv.DictReader(f)
         if reader.fieldnames is None:
-            raise DataSourceError(f"CSV « {table} » vide ou illisible : {path}")
+            raise DataSourceError(
+                f"\"{table}\" CSV is empty or unreadable: {path}")
         header = {(name or "").strip() for name in reader.fieldnames}
         missing = [c for c in REQUIRED_COLUMNS[table] if c not in header]
         if missing:
             raise DataSourceError(
-                f"CSV « {table} » ({path}) : colonnes manquantes : "
+                f"\"{table}\" CSV ({path}): missing columns: "
                 f"{', '.join(missing)}."
             )
         # On renvoie une liste (le fichier est fermé à la sortie du with).
@@ -259,7 +260,7 @@ def load_from_csv(paths):
     """
     for key in ("assets", "scenes", "binds"):
         if not paths.get(key):
-            raise DataSourceError(f"Chemin du CSV « {key} » non renseigné.")
+            raise DataSourceError(f"Path for the \"{key}\" CSV is not set.")
 
     assets, scenes, binds = {}, {}, []
 
@@ -435,7 +436,7 @@ def load_from_sql_dump(path):
     try:
         f = open(path, "r", encoding="utf-8", errors="replace")
     except OSError as exc:
-        raise DataSourceError(f"Impossible d'ouvrir le dump SQL : {exc}") from exc
+        raise DataSourceError(f"Cannot open the SQL dump: {exc}") from exc
 
     with f:
         for line in f:
@@ -464,7 +465,7 @@ def load_from_sql_dump(path):
 
     if not assets and not scenes and not binds:
         raise DataSourceError(
-            "Aucune donnée assets/scenes/binds trouvée dans le dump SQL. "
-            "Vérifiez qu'il s'agit bien d'un export de la base attendue."
+            "No assets/scenes/binds data found in the SQL dump. "
+            "Make sure it is an export of the expected database."
         )
     return assets, scenes, binds

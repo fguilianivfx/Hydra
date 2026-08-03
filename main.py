@@ -60,7 +60,7 @@ _DEFAULT_SCENE = "qua_077_02000_comp_v019"
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Hydra — Graphe de dépendances de scènes")
+        self.setWindowTitle("Hydra — Scene Dependency Graph")
         self.resize(1280, 860)
 
         self._settings = QSettings("Hydra", "DependencyGraph")
@@ -83,7 +83,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(splitter)
 
         self._build_toolbar()
-        self.statusBar().showMessage("Prêt.")
+        self.statusBar().showMessage("Ready.")
 
     def _build_left_panel(self):
         """Panneau de gauche : source de données + saisie de la scène."""
@@ -93,21 +93,21 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(10, 10, 6, 10)
         lay.setSpacing(8)
 
-        lay.addWidget(self._bold_label("Source de données"))
+        lay.addWidget(self._bold_label("Data source"))
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_mysql_tab(), "MySQL")
         self.tabs.addTab(self._build_csv_tab(), "CSV")
-        self.tabs.addTab(self._build_sql_tab(), "Dump .sql")
+        self.tabs.addTab(self._build_sql_tab(), "SQL dump")
         lay.addWidget(self.tabs)
 
         lay.addSpacing(6)
-        lay.addWidget(self._bold_label("Scène à grapher"))
+        lay.addWidget(self._bold_label("Scene to graph"))
         self.scene_edit = QLineEdit()
         self.scene_edit.setPlaceholderText(_DEFAULT_SCENE)
         self.scene_edit.returnPressed.connect(self._on_grapher)
         lay.addWidget(self.scene_edit)
 
-        self.btn_graph = QPushButton("Grapher")
+        self.btn_graph = QPushButton("Graph")
         self.btn_graph.setDefault(True)
         self.btn_graph.clicked.connect(self._on_grapher)
         lay.addWidget(self.btn_graph)
@@ -149,39 +149,39 @@ class MainWindow(QMainWindow):
         self.my_user = QLineEdit()
         self.my_pass = QLineEdit()
         self.my_pass.setEchoMode(QLineEdit.Password)
-        self.my_pass.setPlaceholderText("(en mémoire uniquement)")
+        self.my_pass.setPlaceholderText("(kept in memory only)")
 
-        show = QCheckBox("Afficher")
+        show = QCheckBox("Show")
         show.toggled.connect(
             lambda on: self.my_pass.setEchoMode(
                 QLineEdit.Normal if on else QLineEdit.Password))
 
-        grid.addWidget(QLabel("Hôte"), 0, 0)
+        grid.addWidget(QLabel("Host"), 0, 0)
         grid.addWidget(self.my_host, 0, 1)
         grid.addWidget(QLabel("Port"), 0, 2)
         grid.addWidget(self.my_port, 0, 3)
 
-        grid.addWidget(QLabel("Base"), 1, 0)
+        grid.addWidget(QLabel("Database"), 1, 0)
         grid.addWidget(self.my_db, 1, 1, 1, 3)
 
-        grid.addWidget(QLabel("Utilisateur"), 2, 0)
+        grid.addWidget(QLabel("User"), 2, 0)
         grid.addWidget(self.my_user, 2, 1, 1, 3)
 
-        grid.addWidget(QLabel("Mot de passe"), 3, 0)
+        grid.addWidget(QLabel("Password"), 3, 0)
         pass_row = QHBoxLayout()
         pass_row.addWidget(self.my_pass, 1)
         pass_row.addWidget(show)
         grid.addLayout(pass_row, 3, 1, 1, 3)
 
-        self.my_remember = QCheckBox("Se souvenir (trousseau système)")
+        self.my_remember = QCheckBox("Remember (system keyring)")
         if not _HAS_KEYRING:
             self.my_remember.setEnabled(False)
             self.my_remember.setToolTip(
-                "Installez le module « keyring » pour activer cette option. "
-                "Sans lui, aucun mot de passe n'est écrit sur disque.")
+                "Install the 'keyring' module to enable this option. "
+                "Without it, no password is ever written to disk.")
         grid.addWidget(self.my_remember, 4, 1, 1, 3)
 
-        btn_test = QPushButton("Tester la connexion")
+        btn_test = QPushButton("Test connection")
         btn_test.clicked.connect(self._on_test_connection)
         grid.addWidget(btn_test, 5, 1)
 
@@ -210,17 +210,17 @@ class MainWindow(QMainWindow):
         ]):
             grid.addWidget(QLabel(label), row, 0)
             grid.addWidget(edit, row, 1)
-            btn = QPushButton("Parcourir…")
+            btn = QPushButton("Browse…")
             btn.clicked.connect(
                 lambda _=False, e=edit, lbl=label: self._browse_csv(e, lbl))
             grid.addWidget(btn, row, 2)
 
-        folder_btn = QPushButton("Dossier… (détection auto)")
+        folder_btn = QPushButton("Folder… (auto-detect)")
         folder_btn.clicked.connect(self._browse_csv_folder)
         grid.addWidget(folder_btn, 3, 1)
 
-        hint = QLabel("Exports par table depuis phpMyAdmin "
-                      "(Exporter → CSV, en-têtes en 1re ligne).")
+        hint = QLabel("Per-table exports from phpMyAdmin "
+                      "(Export → CSV, column names on the first line).")
         hint.setStyleSheet("color:#8a93a0;")
         grid.addWidget(hint, 3, 2)
 
@@ -235,14 +235,14 @@ class MainWindow(QMainWindow):
         grid.setVerticalSpacing(6)
 
         self.sql_path = QLineEdit()
-        grid.addWidget(QLabel("Dump .sql"), 0, 0)
+        grid.addWidget(QLabel("SQL dump"), 0, 0)
         grid.addWidget(self.sql_path, 0, 1)
-        btn = QPushButton("Parcourir…")
+        btn = QPushButton("Browse…")
         btn.clicked.connect(self._browse_sql)
         grid.addWidget(btn, 0, 2)
 
-        hint = QLabel("Export mysqldump complet (phpMyAdmin → Exporter → SQL). "
-                      "Les tables assets, scenes et binds sont extraites.")
+        hint = QLabel("Full mysqldump export (phpMyAdmin → Export → SQL). "
+                      "The assets, scenes and binds tables are extracted.")
         hint.setStyleSheet("color:#8a93a0;")
         hint.setWordWrap(True)
         grid.addWidget(hint, 1, 1, 1, 2)
@@ -251,15 +251,15 @@ class MainWindow(QMainWindow):
         return w
 
     def _build_toolbar(self):
-        tb = self.addToolBar("Vue")
+        tb = self.addToolBar("View")
         tb.setMovable(False)
 
-        act_recenter = QAction("Recentrer", self)
+        act_recenter = QAction("Recenter", self)
         act_recenter.setShortcut(QKeySequence("Ctrl+0"))
         act_recenter.triggered.connect(lambda: self.view.reset_view())
         tb.addAction(act_recenter)
 
-        act_reset = QAction("Réinitialiser la disposition", self)
+        act_reset = QAction("Reset layout", self)
         act_reset.triggered.connect(lambda: self.view.reset_layout())
         tb.addAction(act_reset)
 
@@ -282,14 +282,14 @@ class MainWindow(QMainWindow):
             lay.addWidget(box)
             lay.addWidget(QLabel(text))
 
-        swatch(COL_OK_BORDER, "à jour")
-        swatch(COL_STALE_BORDER, "input périmé")
-        swatch(COL_INHERITED_BORDER, "périmé par héritage")
-        swatch(COL_START_BORDER, "scène de départ", border=True)
+        swatch(COL_OK_BORDER, "up to date")
+        swatch(COL_STALE_BORDER, "stale input")
+        swatch(COL_INHERITED_BORDER, "stale by inheritance")
+        swatch(COL_START_BORDER, "queried scene", border=True)
         lay.addStretch(1)
-        tip = QLabel("Survol : dépendances + graphiste · Molette : zoom · "
-                     "Bouton du milieu : pan · Glisser un nœud : horizontal · "
-                     "Glisser une poignée de ligne : réordonner les tâches")
+        tip = QLabel("Hover: dependencies + artist · Wheel: zoom · "
+                     "Middle button: pan · Drag a node: horizontal · "
+                     "Drag a row handle: reorder tasks")
         tip.setStyleSheet("color:#8a93a0;")
         lay.addWidget(tip)
         return w
@@ -297,14 +297,14 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------- file dialogs --
     def _browse_csv(self, edit, label):
         path, _ = QFileDialog.getOpenFileName(
-            self, f"Choisir {label}", edit.text() or "",
-            "CSV (*.csv);;Tous les fichiers (*)")
+            self, f"Choose {label}", edit.text() or "",
+            "CSV (*.csv);;All files (*)")
         if path:
             edit.setText(path)
 
     def _browse_csv_folder(self):
         folder = QFileDialog.getExistingDirectory(
-            self, "Choisir un dossier contenant assets/scenes/binds.csv")
+            self, "Choose a folder containing assets/scenes/binds.csv")
         if not folder:
             return
         found = ds.detect_csv_files(folder)
@@ -316,15 +316,15 @@ class MainWindow(QMainWindow):
         missing = [k for k in mapping if k not in found]
         if missing:
             self.statusBar().showMessage(
-                "Fichiers non trouvés dans le dossier : "
+                "Files not found in folder: "
                 + ", ".join(f"{m}.csv" for m in missing))
         else:
-            self.statusBar().showMessage("Trois fichiers CSV détectés.")
+            self.statusBar().showMessage("Three CSV files detected.")
 
     def _browse_sql(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Choisir un dump SQL", self.sql_path.text() or "",
-            "SQL (*.sql);;Tous les fichiers (*)")
+            self, "Choose an SQL dump", self.sql_path.text() or "",
+            "SQL (*.sql);;All files (*)")
         if path:
             self.sql_path.setText(path)
 
@@ -340,7 +340,7 @@ class MainWindow(QMainWindow):
 
     def _on_test_connection(self):
         cfg = self._mysql_config()
-        self.my_status.setText("Test en cours…")
+        self.my_status.setText("Testing…")
         QApplication.setOverrideCursor(Qt.WaitCursor)
         QApplication.processEvents()
         try:
@@ -373,7 +373,7 @@ class MainWindow(QMainWindow):
             return self._data_cache[sig]
 
         src = self._current_source()
-        self.statusBar().showMessage("Chargement des données…")
+        self.statusBar().showMessage("Loading data…")
         QApplication.setOverrideCursor(Qt.WaitCursor)
         QApplication.processEvents()
         try:
@@ -388,7 +388,7 @@ class MainWindow(QMainWindow):
             else:
                 path = self.sql_path.text().strip()
                 if not path:
-                    raise ds.DataSourceError("Aucun dump SQL sélectionné.")
+                    raise ds.DataSourceError("No SQL dump selected.")
                 data = ds.load_from_sql_dump(path)
         finally:
             QApplication.restoreOverrideCursor()
@@ -400,39 +400,39 @@ class MainWindow(QMainWindow):
     def _on_grapher(self):
         scene_name = self.scene_edit.text().strip()
         if not scene_name:
-            self._error("Saisissez un nom de scène (ex. "
-                        f"« {_DEFAULT_SCENE} »).")
+            self._error("Enter a scene name (e.g. "
+                        f"\"{_DEFAULT_SCENE}\").")
             return
 
         try:
             assets, scenes, binds = self._load_data()
         except ds.DataSourceError as exc:
-            self._error(str(exc), title="Erreur de chargement")
+            self._error(str(exc), title="Loading error")
             return
         except Exception as exc:  # robustesse
-            self._error(f"Erreur inattendue au chargement : {exc}",
-                        title="Erreur")
+            self._error(f"Unexpected error while loading: {exc}",
+                        title="Error")
             return
 
         try:
             result = gm.build_graph(assets, scenes, binds, scene_name)
         except gm.SceneResolutionError as exc:
-            self._error(str(exc), title="Scène introuvable")
+            self._error(str(exc), title="Scene not found")
             return
         except Exception as exc:  # robustesse
-            self._error(f"Erreur lors du calcul du graphe : {exc}",
-                        title="Erreur")
+            self._error(f"Error while building the graph: {exc}",
+                        title="Error")
             return
 
         self.view.set_graph(result)
         stats = result.stats
         self.statusBar().showMessage(
-            f"« {scene_name} » : {stats['nodes']} scènes, "
-            f"{stats['edges']} liens "
-            f"({len(assets)} assets, {len(scenes)} scènes en base).")
+            f"\"{scene_name}\": {stats['nodes']} scenes, "
+            f"{stats['edges']} links "
+            f"({len(assets)} assets, {len(scenes)} scenes in DB).")
         self._maybe_store_password()
 
-    def _error(self, message, title="Erreur"):
+    def _error(self, message, title="Error"):
         self.statusBar().showMessage(message)
         QMessageBox.warning(self, title, message)
 
@@ -498,7 +498,7 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("Hydra — Graphe de dépendances")
+    app.setApplicationName("Hydra — Dependency Graph")
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

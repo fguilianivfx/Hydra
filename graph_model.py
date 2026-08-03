@@ -112,7 +112,7 @@ class SceneNode:
 
     __slots__ = (
         "key", "project", "entity_name", "task_name", "av_name", "version",
-        "node_names", "outputs", "artists", "scene_names",
+        "node_names", "outputs", "inputs", "artists", "scene_names",
         "is_start", "status", "display_name", "row", "col",
     )
 
@@ -125,6 +125,7 @@ class SceneNode:
         self.version = version
         self.node_names = []       # noms des outputs (node_name), triés
         self.outputs = []          # list[(name, latest_version)] triée par name
+        self.inputs = []           # list[(label, version, latest_version)]
         self.artists = []          # graphistes ayant publié cette scène
         self.scene_names = []      # noms bruts des lignes scenes (pour survol)
         self.is_start = False
@@ -209,21 +210,21 @@ def resolve_scene(input_name, scenes):
     """
     raw = (input_name or "").strip()
     if not raw:
-        raise SceneResolutionError("Aucun nom de scène saisi.")
+        raise SceneResolutionError("No scene name entered.")
 
     m = re.search(r"_v0*(\d+)\s*$", raw, re.IGNORECASE)
     if not m:
         raise SceneResolutionError(
-            "Nom invalide : la version finale est attendue "
-            "(ex. « qua_077_02000_comp_v019 »)."
+            "Invalid name: a trailing version is expected "
+            "(e.g. \"qua_077_02000_comp_v019\")."
         )
     version = int(m.group(1))
     stem = raw[: m.start()]
     parts = stem.split("_")
     if len(parts) < 2:
         raise SceneResolutionError(
-            "Nom invalide : préfixe et entité attendus "
-            "(ex. « qua_077_02000_comp_v019 »)."
+            "Invalid name: a prefix and an entity are expected "
+            "(e.g. \"qua_077_02000_comp_v019\")."
         )
     prefix = parts[0]
     core = "_".join(parts[1:]).lower()   # entity_task[_av]
@@ -246,8 +247,8 @@ def resolve_scene(input_name, scenes):
 
     if not matches:
         raise SceneResolutionError(
-            f"Scène introuvable pour « {raw} ». "
-            "Vérifiez l'entité, la tâche, l'av et la version."
+            f"Scene not found for \"{raw}\". "
+            "Check the entity, task, av and version."
         )
 
     # Toutes les correspondances partagent normalement la même identité ;
@@ -396,9 +397,11 @@ def build_graph(assets, scenes, binds, input_name):
     for aid in s0_dep_assets:                      # inputs directs de S0
         node_inputs[start_key].add(aid)
 
-    # Détails par output + graphiste(s), et titre d'affichage (nom de table).
+    # Détails par output + inputs + graphiste(s), et titre (nom de table).
     for node in result.nodes.values():
         _compute_outputs(node, asset_stream_max)
+        _compute_inputs(node, node_inputs.get(node.key, ()),
+                        assets, asset_stream_max)
         _fill_scene_meta(node, scenes_by_iv, scenes)
         node.display_name = _display_title(node, prefix)
 
@@ -434,6 +437,33 @@ def _compute_outputs(node, asset_stream_max):
             latest = node.version
         outputs.append((name, latest))
     node.outputs = outputs
+
+
+def _input_label(asset):
+    """Libellé court d'un asset importé (pour le survol)."""
+    taskdisp = task_display(asset["task_name"])
+    base = f"{asset['entity_name']}_{taskdisp}"
+    if asset["av_name"]:
+        base += f"_{asset['av_name']}"
+    node_name = asset["node_name"]
+    return f"{base} · {node_name}" if node_name else base
+
+
+def _compute_inputs(node, input_ids, assets, asset_stream_max):
+    """Renseigne node.inputs = [(label, version, latest_version)].
+
+    Chaque asset importé est comparé à sa dernière version exportée.
+    """
+    seen = {}
+    for pid in input_ids:
+        a = assets.get(pid)
+        if a is None:
+            continue
+        stream = (a["project"], a["entity_name"], a["task_name"],
+                  a["av_name"], a["node_name"])
+        latest = asset_stream_max.get(stream, a["version"])
+        seen[(_input_label(a), a["version"], latest)] = None
+    node.inputs = sorted(seen, key=lambda t: t[0])
 
 
 def _fill_scene_meta(node, scenes_by_iv, scenes):

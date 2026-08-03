@@ -35,26 +35,25 @@ from PySide6.QtWidgets import (
     QGraphicsView,
 )
 
-# --- Palette (dark, sobre) --------------------------------------------------
+# --- Palette (fond sombre, cartes pastel) -----------------------------------
 COL_BG = QColor("#14171b")
-COL_TITLE = QColor("#ffffff")
-COL_META_START = QColor("#fff3d4")
+COL_TITLE = QColor("#1f2529")          # texte foncé, lisible sur pastel clair
+COL_META_START = QColor("#6a4d0e")     # ambre foncé pour « queried scene »
 COL_ROW_LABEL = QColor("#7b8593")
 COL_ROW_GUIDE = QColor(255, 255, 255, 12)
 
-# Fond / bordure du nœud selon son statut de propagation (couleurs vives).
-COL_OK_FILL = QColor("#26a24e")
-COL_OK_BORDER = QColor("#6bec91")
-COL_STALE_FILL = QColor("#d83a2d")
-COL_STALE_BORDER = QColor("#ff8575")
-COL_INHERITED_FILL = QColor("#e78e12")
-COL_INHERITED_BORDER = QColor("#ffc84f")
-COL_START_BORDER = QColor("#ffd23d")
+# Fond / bordure du nœud selon son statut de propagation (tons pastel).
+COL_OK_FILL = QColor("#c2e7cf")        # vert pastel
+COL_OK_BORDER = QColor("#8ccaa4")
+COL_STALE_FILL = QColor("#f3c1ba")     # rouge/rose pastel
+COL_STALE_BORDER = QColor("#e0988d")
+COL_INHERITED_FILL = QColor("#f6ddb2") # pêche pastel
+COL_INHERITED_BORDER = QColor("#e3bd80")
+COL_START_BORDER = QColor("#d9a93f")   # or, accent de la scène interrogée
 
-# Couleur du texte d'un output selon sa fraîcheur (vif, + ombre pour lisibilité).
-COL_ASSET_OK = QColor("#6effa0")
-COL_ASSET_STALE = QColor("#ff7a66")
-COL_TEXT_SHADOW = QColor(0, 0, 0, 160)
+# Couleur du texte d'un output/input selon sa fraîcheur (foncé sur pastel).
+COL_ASSET_OK = QColor("#1c7a44")       # vert foncé
+COL_ASSET_STALE = QColor("#b4392c")    # rouge foncé
 
 COL_EDGE_DEFAULT = QColor(172, 180, 192, 90)
 COL_EDGE_FADED = QColor(150, 158, 170, 28)
@@ -106,10 +105,7 @@ def _fit_output_line(name, suffix, fm, max_w):
     return fm.elidedText(name, Qt.ElideRight, name_max) + suffix
 
 
-def _draw_text_shadowed(painter, x, y, text, color):
-    """Texte avec une légère ombre portée, pour rester lisible sur fond vif."""
-    painter.setPen(QPen(COL_TEXT_SHADOW))
-    painter.drawText(QPointF(x + 0.8, y + 0.9), text)
+def _draw_text(painter, x, y, text, color):
     painter.setPen(QPen(color))
     painter.drawText(QPointF(x, y), text)
 
@@ -261,22 +257,31 @@ class SceneNodeItem(QGraphicsObject):
         self._relayout()
 
     # --- géométrie / contenu ------------------------------------------------
+    @staticmethod
+    def _version_state(current, latest):
+        """« (vXXX) » si à jour, « (vXXX → vYYY) » si périmé."""
+        if (current is not None and latest is not None and current < latest):
+            return f"({_vfmt(current)} → {_vfmt(latest)})"
+        return f"({_vfmt(current)})"
+
     def _tooltip_text(self):
         n = self.node
         parts = [n.display_name]
-        parts.append("graphiste : "
-                     + (", ".join(n.artists) if n.artists else "inconnu"))
-        for name, latest in n.outputs:
-            v = n.version
-            if v is not None and latest is not None and v < latest:
-                parts.append(f"  {name} : {_vfmt(v)} → dernière {_vfmt(latest)} "
-                             "(périmé)")
-            else:
-                parts.append(f"  {name} : {_vfmt(v)}")
+        parts.append("Artist: "
+                     + (", ".join(n.artists) if n.artists else "unknown"))
+        if n.inputs:
+            parts.append("Inputs:")
+            for label, cur, latest in n.inputs:
+                parts.append(f"  {label} {self._version_state(cur, latest)}")
+        if n.outputs:
+            parts.append("Outputs:")
+            for name, latest in n.outputs:
+                parts.append(
+                    f"  {name} {self._version_state(n.version, latest)}")
         parts.append({
-            "ok": "à jour",
-            "stale": "périmé (input obsolète)",
-            "inherited": "périmé par héritage",
+            "ok": "up to date",
+            "stale": "outdated (stale input)",
+            "inherited": "outdated by inheritance",
         }.get(n.status, n.status))
         return "\n".join(parts)
 
@@ -301,7 +306,7 @@ class SceneNodeItem(QGraphicsObject):
         # Ligne méta : uniquement « scène de départ » (plus de badge version).
         self._meta_lines = []
         if n.is_start:
-            self._meta_lines.append(("— scène de départ —", COL_META_START))
+            self._meta_lines.append(("— queried scene —", COL_META_START))
 
         # Un output par ligne, coloré selon sa fraîcheur :
         #   à jour  -> vert :  "name (v001)"
@@ -401,7 +406,7 @@ class SceneNodeItem(QGraphicsObject):
         painter.setFont(self._title_font)
         for line in self._title_lines:
             y += fm_title.ascent()
-            _draw_text_shadowed(painter, x, y, line, COL_TITLE)
+            _draw_text(painter, x, y, line, COL_TITLE)
             y += fm_title.descent() + fm_title.leading()
 
         if self._meta_lines:
@@ -410,7 +415,7 @@ class SceneNodeItem(QGraphicsObject):
             painter.setFont(self._meta_font)
             for text, color in self._meta_lines:
                 y += fm_meta.ascent()
-                _draw_text_shadowed(painter, x, y, text, color)
+                _draw_text(painter, x, y, text, color)
                 y += fm_meta.descent() + fm_meta.leading()
 
         if self._output_lines:
@@ -419,7 +424,7 @@ class SceneNodeItem(QGraphicsObject):
             painter.setFont(self._sub_font)
             for text, color in self._output_lines:
                 y += fm_out.ascent()
-                _draw_text_shadowed(painter, x, y, text, color)
+                _draw_text(painter, x, y, text, color)
                 y += fm_out.descent() + fm_out.leading()
 
 
@@ -458,7 +463,7 @@ class RowHeaderItem(QGraphicsObject):
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.SizeVerCursor)
-        self.setToolTip("Glisser pour réordonner les lignes de tâche")
+        self.setToolTip("Drag to reorder task rows")
         self.setZValue(5)
 
     def boundingRect(self):
