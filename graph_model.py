@@ -66,22 +66,6 @@ def _active(value):
     return isinstance(value, str) and value.strip() == "1"
 
 
-def canonical_name(prefix, entity_name, task_name, av_name, version):
-    """Nom canonique complet d'une scène pour l'affichage.
-
-    f"{prefix}_{entity}_{taskdisp}" + ("_{av}" si av) + "_v{NNN}".
-    """
-    taskdisp = task_display(task_name)
-    name = f"{prefix}_{entity_name}_{taskdisp}"
-    if av_name:
-        name += f"_{av_name}"
-    if version is None:
-        name += "_v???"
-    else:
-        name += f"_v{version:03d}"
-    return name
-
-
 # ---------------------------------------------------------------------------
 # Nœud de graphe et résultat
 # ---------------------------------------------------------------------------
@@ -376,14 +360,11 @@ def build_graph(assets, scenes, binds, input_name):
     for aid in s0_dep_assets:                      # inputs directs de S0
         node_inputs[start_key].add(aid)
 
-    # Détails par output + graphiste(s), et nom canonique d'affichage.
+    # Détails par output + graphiste(s), et titre d'affichage (nom de table).
     for node in result.nodes.values():
         _compute_outputs(node, asset_stream_max)
         _fill_scene_meta(node, scenes_by_iv, scenes)
-        node.display_name = canonical_name(
-            node.project or prefix, node.entity_name, node.task_name,
-            node.av_name, node.version,
-        )
+        node.display_name = _display_title(node, prefix)
 
     # Statut par propagation à trois états :
     #   stale (rouge)     = importe au moins un asset supplanté ;
@@ -420,17 +401,42 @@ def _compute_outputs(node, asset_stream_max):
 
 
 def _fill_scene_meta(node, scenes_by_iv, scenes):
-    """Renseigne node.scene_names et node.artists depuis les lignes scenes."""
+    """Renseigne node.scene_names et node.artists depuis les lignes scenes.
+
+    Le graphiste provient d'une colonne dédiée (artist/user/…) si elle
+    existe ; sinon il est déduit du nom (sale) de la scène.
+    """
     names, artists = [], []
     for sid in scenes_by_iv.get(node.key, ()):
-        raw = scenes.get(sid, {}).get("name", "")
+        s = scenes.get(sid, {})
+        raw = s.get("name", "")
         if raw and raw not in names:
             names.append(raw)
-        artist = _extract_artist(raw, node)
+        artist = s.get("artist", "") or _extract_artist(raw, node)
         if artist and artist not in artists:
             artists.append(artist)
     node.scene_names = names
     node.artists = artists
+
+
+def _display_title(node, prefix):
+    """Titre du rectangle : nom brut de la table + version, ex.
+    « tmp_024C_0060_lighting_main (v010) ».
+
+    On privilégie le nom de la ligne ``scenes`` ; à défaut (nœud issu
+    uniquement d'assets, sans ligne scene) on reconstruit l'identité depuis
+    les colonnes structurées. Une version en suffixe est retirée pour éviter
+    la redondance avec « (vNNN) ».
+    """
+    base = node.scene_names[0] if node.scene_names else ""
+    if not base:
+        taskdisp = task_display(node.task_name)
+        base = f"{node.project or prefix}_{node.entity_name}_{taskdisp}"
+        if node.av_name:
+            base += f"_{node.av_name}"
+    base = re.sub(r"_[vV]\d+$", "", base)
+    ver = f"v{node.version:03d}" if node.version is not None else "v?"
+    return f"{base} ({ver})"
 
 
 def _extract_artist(scene_name, node):

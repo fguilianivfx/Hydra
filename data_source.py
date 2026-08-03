@@ -95,6 +95,20 @@ def _asset_from_mapping(get):
     }
 
 
+# Colonnes possibles pour le graphiste ayant publié la scène (facultatif).
+_ARTIST_COLUMNS = ("artist", "user", "username", "created_by", "author",
+                   "publisher", "login", "owner")
+
+
+def _pick(get, names):
+    """Renvoie la 1re valeur non vide parmi plusieurs colonnes candidates."""
+    for name in names:
+        value = norm_str(get(name))
+        if value:
+            return value
+    return ""
+
+
 def _scene_from_mapping(get):
     return {
         "name": norm_str(get("name")),
@@ -103,6 +117,7 @@ def _scene_from_mapping(get):
         "task_name": norm_str(get("task_name")),
         "av_name": norm_str(get("av_name")),
         "version": to_int(get("version")),
+        "artist": _pick(get, _ARTIST_COLUMNS),
     }
 
 
@@ -179,10 +194,9 @@ def load_from_mysql(config):
                     continue
                 assets[aid] = _asset_from_mapping(row.get)
 
-            cur.execute(
-                "SELECT id, name, project, entity_name, task_name, av_name, "
-                "version FROM scenes"
-            )
+            # SELECT * : récupère aussi une éventuelle colonne « graphiste »
+            # (artist/user/created_by…) sans échouer si elle est absente.
+            cur.execute("SELECT * FROM scenes")
             for row in cur.fetchall():
                 sid = to_int(row.get("id"))
                 if sid is None:

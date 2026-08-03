@@ -4,10 +4,12 @@ Application de bureau **native** (Python + **PySide6**) qui, à partir du nom
 d'une scène et d'une source de données, affiche un **graphe interactif** des
 scènes dont elle dépend, coloré selon leur fraîcheur.
 
-* un **rectangle** = une scène (une version), avec le nom complet en haut et
-  **un output par ligne** en dessous — chaque output en **vert** s'il est à sa
-  dernière version publiée, en **rouge** sinon avec la version disponible
-  (ex. `rendercam ⚠ (v001 → v002)`) ;
+* un **rectangle** = une scène (une version) : en titre, le **nom de la table**
+  (`scenes.name`, ou l'identité reconstruite pour un nœud issu d'assets) suivi
+  de la version — ex. `tmp_024C_0060_lighting_main (v010)` ; puis **un output
+  par ligne** — chaque output en **vert** s'il est à sa dernière version
+  publiée, en **rouge** sinon avec la version disponible (`rendercam ⚠
+  (v001 → v002)`) ;
 * une **ligne par type de tâche**, les sources en haut et le compositing en
   bas (le flux descend) ; la **scène interrogée est toujours tout en bas** ;
 * couleur du nœud par **propagation** : **vert** = tous les inputs à jour ·
@@ -46,7 +48,10 @@ pip install -r requirements.txt
 python main.py
 ```
 
-1. Choisissez une **source de données** (onglets en haut).
+La fenêtre est un **split vertical** : les saisies (source de données + nom de
+scène) à **gauche**, le graphe à **droite**.
+
+1. Choisissez une **source de données** (onglets à gauche).
 2. Saisissez le **nom de la scène**, ex. `qua_077_02000_comp_v019`.
 3. Cliquez **Grapher**.
 
@@ -107,7 +112,8 @@ Colonnes **requises** (les autres sont ignorées) :
 * **`assets.csv`** : `id, project, entity_name, task_name, av_name,
   node_name, version`
 * **`scenes.csv`** : `id, name, project, entity_name, task_name, av_name,
-  version`
+  version` — le titre du rectangle reprend `name` + version ; une colonne
+  **graphiste** facultative (`artist`, `user`, `created_by`…) alimente le survol.
 * **`binds.csv`** : `asset_id, scene_id, active`
 
 Conversions : `version` → entier (vide / non numérique → *inconnu*) ;
@@ -124,10 +130,10 @@ Format : `{prefix}_{entity}_{task}[_{av}]_v{NNN}`, ex.
 `qua_077_02000_comp_v019` (préfixe `qua`, entité `077_02000`, tâche `comp`,
 av absent, version `19`).
 
-* la colonne `scenes.name` est « sale » (noms d'artistes, suffixes) : la
-  résolution se fait sur les colonnes structurées `(entity_name, task_name,
-  av_name, version)`, **pas** sur `name`. Le **nom du graphiste** affiché au
-  survol en est toutefois extrait (segments non canoniques de `name`) ;
+* la **résolution** se fait sur les colonnes structurées `(entity_name,
+  task_name, av_name, version)`, **pas** sur `name` (qui peut être « sale ») ;
+  le **nom du graphiste** au survol vient d'une colonne dédiée si elle existe,
+  sinon il est déduit des segments non canoniques de `name` ;
 * `comp` est mappé sur `task_name = "compositing"` ;
 * un `av` absent du nom correspond à `av_name = ""` ;
 * en dernier recours, un filtrage par sous-chaîne sur `name` est tenté ;

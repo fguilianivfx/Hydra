@@ -27,8 +27,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
+    QSplitter,
     QTabWidget,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -72,50 +72,67 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ UI --
     def _build_ui(self):
-        central = QWidget()
-        self.setCentralWidget(central)
-        root = QVBoxLayout(central)
-        root.setContentsMargins(10, 10, 10, 8)
-        root.setSpacing(8)
-
-        root.addWidget(self._build_source_panel())
-        root.addLayout(self._build_action_bar())
-
-        self.view = DependencyGraphView()
-        root.addWidget(self.view, 1)
-
-        root.addWidget(self._build_legend())
+        # Split vertical : saisies à gauche, graphe à droite.
+        splitter = QSplitter(Qt.Horizontal)
+        splitter.addWidget(self._build_left_panel())
+        splitter.addWidget(self._build_right_panel())
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setChildrenCollapsible(False)
+        splitter.setSizes([390, 900])
+        self.setCentralWidget(splitter)
 
         self._build_toolbar()
         self.statusBar().showMessage("Prêt.")
 
-    def _build_source_panel(self):
+    def _build_left_panel(self):
+        """Panneau de gauche : source de données + saisie de la scène."""
         panel = QWidget()
+        panel.setMinimumWidth(340)
         lay = QVBoxLayout(panel)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(4)
+        lay.setContentsMargins(10, 10, 6, 10)
+        lay.setSpacing(8)
 
-        # En-tête repliable.
-        self._toggle = QToolButton()
-        self._toggle.setText("  Source de données")
-        self._toggle.setCheckable(True)
-        self._toggle.setChecked(True)
-        self._toggle.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self._toggle.setArrowType(Qt.DownArrow)
-        self._toggle.setAutoRaise(True)
-        self._toggle.toggled.connect(self._on_toggle_source)
-        lay.addWidget(self._toggle, 0, Qt.AlignLeft)
-
+        lay.addWidget(self._bold_label("Source de données"))
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_mysql_tab(), "phpMyAdmin (MySQL)")
-        self.tabs.addTab(self._build_csv_tab(), "Fichiers CSV")
-        self.tabs.addTab(self._build_sql_tab(), "Dump SQL")
+        self.tabs.addTab(self._build_mysql_tab(), "MySQL")
+        self.tabs.addTab(self._build_csv_tab(), "CSV")
+        self.tabs.addTab(self._build_sql_tab(), "Dump .sql")
         lay.addWidget(self.tabs)
+
+        lay.addSpacing(6)
+        lay.addWidget(self._bold_label("Scène à grapher"))
+        self.scene_edit = QLineEdit()
+        self.scene_edit.setPlaceholderText(_DEFAULT_SCENE)
+        self.scene_edit.returnPressed.connect(self._on_grapher)
+        lay.addWidget(self.scene_edit)
+
+        self.btn_graph = QPushButton("Grapher")
+        self.btn_graph.setDefault(True)
+        self.btn_graph.clicked.connect(self._on_grapher)
+        lay.addWidget(self.btn_graph)
+
+        lay.addStretch(1)
         return panel
 
-    def _on_toggle_source(self, checked):
-        self.tabs.setVisible(checked)
-        self._toggle.setArrowType(Qt.DownArrow if checked else Qt.RightArrow)
+    def _build_right_panel(self):
+        """Panneau de droite : la vue du graphe et sa légende."""
+        panel = QWidget()
+        lay = QVBoxLayout(panel)
+        lay.setContentsMargins(6, 10, 10, 6)
+        lay.setSpacing(6)
+        self.view = DependencyGraphView()
+        lay.addWidget(self.view, 1)
+        lay.addWidget(self._build_legend())
+        return panel
+
+    @staticmethod
+    def _bold_label(text):
+        label = QLabel(text)
+        font = label.font()
+        font.setBold(True)
+        label.setFont(font)
+        return label
 
     def _build_mysql_tab(self):
         w = QWidget()
@@ -232,20 +249,6 @@ class MainWindow(QMainWindow):
 
         grid.setColumnStretch(1, 1)
         return w
-
-    def _build_action_bar(self):
-        bar = QHBoxLayout()
-        bar.addWidget(QLabel("Scène :"))
-        self.scene_edit = QLineEdit()
-        self.scene_edit.setPlaceholderText(_DEFAULT_SCENE)
-        self.scene_edit.returnPressed.connect(self._on_grapher)
-        bar.addWidget(self.scene_edit, 1)
-
-        self.btn_graph = QPushButton("Grapher")
-        self.btn_graph.setDefault(True)
-        self.btn_graph.clicked.connect(self._on_grapher)
-        bar.addWidget(self.btn_graph)
-        return bar
 
     def _build_toolbar(self):
         tb = self.addToolBar("Vue")
