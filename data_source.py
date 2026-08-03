@@ -130,7 +130,8 @@ def _scene_from_mapping(get):
 # l'utilisateur et le mot de passe sont saisis. Base par défaut :
 # « dd_assets_tracking ».
 
-_DEFAULT_MYSQL_HOST = "dd-intra.ddprs.net"
+_DEFAULT_MYSQL_HOST = "dd-intra"
+DEFAULT_DATABASE = "dd_assets_tracking"
 
 
 def mysql_host():
@@ -192,7 +193,7 @@ class _MysqlSession:
     def __enter__(self):
         user = self._config.get("user") or ""
         password = self._config.get("password") or ""
-        database = self._config.get("database") or "dd_assets_tracking"
+        database = self._config.get("database") or DEFAULT_DATABASE
         kind, driver = _import_mysql_driver()
         if kind == "mariadb":
             self.conn = driver.connect(

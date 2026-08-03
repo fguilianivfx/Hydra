@@ -141,7 +141,11 @@ class MainWindow(QMainWindow):
         grid.setVerticalSpacing(6)
 
         # L'hôte n'est pas demandé : il vient de $MYSQL_HOST.
-        self.my_db = QLineEdit("dd_assets_tracking")
+        self.my_db = QLineEdit(ds.DEFAULT_DATABASE)
+        self.my_db.setPlaceholderText(ds.DEFAULT_DATABASE)
+        self.my_db.setToolTip(
+            "Database name (not the server). "
+            f"Default: {ds.DEFAULT_DATABASE}")
         self.my_user = QLineEdit()
         self.my_pass = QLineEdit()
         self.my_pass.setEchoMode(QLineEdit.Password)
@@ -180,12 +184,28 @@ class MainWindow(QMainWindow):
         self.my_status.setWordWrap(True)
         grid.addWidget(self.my_status, 4, 2, 1, 2)
 
-        host_hint = QLabel(f"Host: ${{MYSQL_HOST}} (currently {ds.mysql_host()})")
-        host_hint.setStyleSheet("color:#8a93a0;")
-        grid.addWidget(host_hint, 5, 0, 1, 4)
+        self.my_host_hint = QLabel()
+        self.my_host_hint.setStyleSheet("color:#8a93a0;")
+        self.my_host_hint.setWordWrap(True)
+        self._refresh_host_hint()
+        self.my_db.textChanged.connect(self._refresh_host_hint)
+        grid.addWidget(self.my_host_hint, 5, 0, 1, 4)
 
         grid.setColumnStretch(1, 1)
         return w
+
+    def _refresh_host_hint(self):
+        """Rappelle l'hôte et la base utilisés, et signale une confusion."""
+        host = ds.mysql_host()
+        database = self.my_db.text().strip()
+        text = (f"Host: ${{MYSQL_HOST}} (currently {host}) · "
+                f"Database: {database or ds.DEFAULT_DATABASE}")
+        # Le champ « Database » reçoit parfois un nom de serveur par erreur.
+        if database and (database == host or "." in database):
+            text += (f"\n⚠ \"{database}\" looks like a server name. "
+                     f"Database should be e.g. {ds.DEFAULT_DATABASE}; "
+                     "the host comes from $MYSQL_HOST.")
+        self.my_host_hint.setText(text)
 
     def _build_csv_tab(self):
         w = QWidget()

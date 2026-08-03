@@ -83,8 +83,11 @@ Connexion directe au serveur MySQL/MariaDB (via le connecteur `mariadb`,
 | Password      | *(masqué)*           |
 
 * **L'hôte n'est pas demandé** : il est lu depuis la variable
-  d'environnement **`MYSQL_HOST`** (défaut `dd-intra.ddprs.net`). L'onglet
-  affiche l'hôte effectivement utilisé.
+  d'environnement **`MYSQL_HOST`** (défaut `dd-intra`). L'onglet rappelle
+  l'hôte **et** la base réellement utilisés.
+* ⚠ Le champ **Database** attend le nom de la **base** (`dd_assets_tracking`),
+  pas celui du serveur ; l'appli le signale si une valeur ressemble à un nom
+  d'hôte.
 * Bouton **Test connection** (retour succès / erreur) avant de charger.
 * Le mot de passe **reste en mémoire uniquement** : il n'est ni écrit sur
   disque ni journalisé (sauf trousseau système via `keyring`, sur demande).
