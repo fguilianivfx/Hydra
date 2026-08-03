@@ -193,16 +193,21 @@ L'obsolescence se **propage vers l'aval** : un nœud construit, même
 indirectement, sur une dépendance périmée est signalé (rouge s'il importe
 directement un asset périmé, sinon jaune).
 
-**Couleur d'un lien** — elle dépend du nœud enfant *et* de ce que le lien
-transporte, ce qui permet d'identifier le lien **responsable** :
+**Couleur d'un lien** — elle indique **par où arrive l'obsolescence** :
 
-* enfant **vert** → lien **vert** ;
-* enfant **jaune** (obsolète par héritage) → lien **jaune** ;
-* enfant **rouge** → lien **rouge** si *ce* lien transporte un asset supplanté,
-  **vert** sinon (ce lien n'est pas en cause).
+| Nœud enfant | Le lien transporte un asset périmé | Nœud parent | Lien |
+|-------------|-----------------------------------|-------------|------|
+| **vert**    | —                                 | —           | **vert** |
+| rouge       | **oui**                           | —           | **rouge** |
+| rouge/jaune | non                               | **vert**    | **vert** |
+| rouge/jaune | non                               | rouge/jaune | **jaune** |
 
-Ainsi, sur un nœud rouge alimenté par plusieurs liens, seul celui qui apporte
-l'input périmé apparaît en rouge.
+Autrement dit : **rouge** = ce lien est la cause directe (il apporte un asset
+supplanté) · **jaune** = le lien est sain mais son parent est lui-même obsolète
+(l'obsolescence est héritée par ce chemin) · **vert** = ce chemin est sain.
+
+Sur un nœud rouge alimenté par plusieurs liens, on repère donc immédiatement
+lequel est en cause, et lesquels ne font que transmettre.
 
 ### Désactiver un lien (simulation « et si ? »)
 

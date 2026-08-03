@@ -166,18 +166,22 @@ class EdgeItem(QGraphicsPathItem):
 
     # --- couleur du lien ----------------------------------------------------
     def _base_color(self):
-        """Couleur du lien, d'après l'enfant et les assets qu'il transporte.
+        """Couleur du lien : d'où vient l'obsolescence de l'enfant ?
 
-        * enfant vert            -> lien vert ;
-        * enfant jaune (obsolète par héritage) -> lien jaune ;
-        * enfant rouge           -> rouge si CE lien transporte un asset
-          supplanté, vert sinon (ce lien n'est pas responsable).
+        * enfant **vert** -> lien vert ;
+        * enfant obsolète (rouge ou jaune) :
+            - **rouge** si CE lien transporte un asset supplanté (il est la
+              cause directe) ;
+            - sinon **jaune** si le parent est lui-même obsolète (l'obsolescence
+              arrive par ce lien, mais héritée) ;
+            - sinon **vert** (ce lien est sain, la cause est ailleurs).
         """
-        status = self.dst.node.status
-        if status == "inherited":
+        if self.dst.node.status == "ok":
+            return COL_OK_BORDER
+        if self.carries_stale:
+            return COL_STALE_BORDER
+        if self.src.node.status != "ok":
             return COL_INHERITED_BORDER
-        if status == "stale":
-            return COL_STALE_BORDER if self.carries_stale else COL_OK_BORDER
         return COL_OK_BORDER
 
     def refresh_appearance(self):
