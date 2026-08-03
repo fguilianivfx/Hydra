@@ -25,23 +25,43 @@ class SceneResolutionError(Exception):
 
 
 # Ordre des lignes de tâche, du haut (sources) vers le bas (compositing).
-TASK_ORDER = [
-    "modeling",
-    "tracking",
-    "rigging",
-    "layout",
-    "shading",
-    "animation",
-    "lighting",
-    "compositing",
-]
-_TASK_RANK = {name: i for i, name in enumerate(TASK_ORDER)}
-# Une tâche inconnue est placée tout en bas.
-_UNKNOWN_RANK = len(TASK_ORDER)
+# Ordre par défaut des lignes de tâche (haut -> bas), en deux niveaux
+# séparés par un trait horizontal.
+ASSET_TASKS = ["modeling", "shading", "rigging"]
+SHOT_TASKS = ["tracking", "layout", "animation", "fx", "lighting", "compositing"]
 
-# Alias de tâches (nom saisi <-> nom en base) utilisés pour la résolution.
-# Le seul mapping imposé est comp <-> compositing ; les autres aident à
-# retrouver une scène quand l'utilisateur emploie une abréviation courante.
+# Étiquette affichée à gauche de chaque ligne (reprend les noms courts).
+_ROW_LABEL = {
+    "modeling": "modeling", "shading": "shading", "rigging": "rig",
+    "tracking": "tracking", "layout": "layout", "animation": "anim",
+    "fx": "fx", "lighting": "lighting", "compositing": "compositing",
+}
+
+# Alias nom de tâche -> tâche canonique, pour le classement des lignes.
+_LAYOUT_ALIASES = {
+    "model": "modeling", "modeling": "modeling", "modelling": "modeling",
+    "mod": "modeling",
+    "shading": "shading", "shade": "shading", "lookdev": "shading",
+    "look": "shading", "surfacing": "shading", "texturing": "shading",
+    "rig": "rigging", "rigging": "rigging",
+    "track": "tracking", "tracking": "tracking", "matchmove": "tracking",
+    "mm": "tracking",
+    "layout": "layout", "lay": "layout",
+    "anim": "animation", "animation": "animation",
+    "fx": "fx", "effects": "fx", "simulation": "fx", "simu": "fx",
+    "sim": "fx", "cfx": "fx",
+    "light": "lighting", "lighting": "lighting", "lgt": "lighting",
+    "comp": "compositing", "compositing": "compositing",
+}
+
+# Rangs de base, avec de la marge pour intercaler les tâches inconnues.
+_RANK_STEP = 100
+_ASSET_RANK = {t: (i + 1) * _RANK_STEP for i, t in enumerate(ASSET_TASKS)}
+_SHOT_RANK = {t: (len(ASSET_TASKS) + 1 + i + 1) * _RANK_STEP
+              for i, t in enumerate(SHOT_TASKS)}
+_BASE_RANK = {**_ASSET_RANK, **_SHOT_RANK}
+
+# Alias de tâches utilisés pour la RÉSOLUTION du nom de scène (comp<->…).
 _TASK_ALIASES = {
     "compositing": {"comp"},
     "animation": {"anim"},
@@ -51,12 +71,29 @@ _TASK_ALIASES = {
     "layout": {"lay"},
     "shading": {"shade", "lookdev", "look"},
     "rigging": {"rig"},
+    "fx": {"effects", "simulation", "simu", "sim", "cfx"},
 }
 
 
 def task_display(task_name):
     """Nom court d'une tâche pour l'affichage (compositing -> comp)."""
     return "comp" if task_name == "compositing" else task_name
+
+
+def canon_task(task_name):
+    """Tâche canonique (rig -> rigging, anim -> animation, …)."""
+    key = (task_name or "").strip().lower()
+    return _LAYOUT_ALIASES.get(key, key)
+
+
+def task_level(task_name):
+    """Niveau d'une tâche : 'asset', 'shot' ou 'other'."""
+    c = canon_task(task_name)
+    if c in _ASSET_RANK:
+        return "asset"
+    if c in _SHOT_RANK:
+        return "shot"
+    return "other"
 
 
 def _active(value):
@@ -94,24 +131,23 @@ class SceneNode:
         # "ok" (vert) | "inherited" (orange) | "stale" (rouge)
         self.status = "ok"
         self.display_name = ""
-        self.row = _UNKNOWN_RANK
+        self.row = 0
         self.col = 0
-
-    @property
-    def task_rank(self):
-        return _TASK_RANK.get(self.task_name, _UNKNOWN_RANK)
 
 
 class GraphResult:
     """Résultat complet prêt à afficher."""
 
-    __slots__ = ("nodes", "edges", "start_key", "row_tasks", "stats")
+    __slots__ = ("nodes", "edges", "start_key", "row_tasks", "row_levels",
+                 "separator_after_row", "stats")
 
     def __init__(self):
         self.nodes = {}            # key -> SceneNode
         self.edges = []            # list[(top_key, bottom_key)] (parent -> enfant)
         self.start_key = None
-        self.row_tasks = {}        # row_index -> nom de tâche (pour les labels)
+        self.row_tasks = {}        # row_index -> étiquette de tâche
+        self.row_levels = {}       # row_index -> 'asset' | 'shot' | 'other'
+        self.separator_after_row = None  # ligne après laquelle placer le trait
         self.stats = {}
 
 
@@ -519,39 +555,88 @@ def _propagate_status(result, node_inputs, assets, asset_stream_max):
 # Disposition : lignes de tâche (Y) + colonnes (X) par barycentre
 # ---------------------------------------------------------------------------
 
-def _assign_layout(result):
-    """Assigne node.row (rang de tâche compacté) et node.col (ordre).
+def _rank_tasks_into_rows(result):
+    """Calcule l'ordre des lignes (une par tâche canonique) et le séparateur.
 
-    La scène interrogée (S0) est toujours placée sur la ligne la plus basse,
-    quelle que soit sa tâche.
+    Renseigne node.row, result.row_tasks, result.row_levels et
+    result.separator_after_row.
+    """
+    nodes = result.nodes
+    node_task = {k: canon_task(n.task_name) for k, n in nodes.items()}
+    tasks_present = set(node_task.values())
+
+    # Arêtes au niveau tâche (pour intercaler les tâches inconnues).
+    task_parents = defaultdict(set)
+    task_children = defaultdict(set)
+    for top, bottom in result.edges:
+        tp, tb = node_task[top], node_task[bottom]
+        if tp != tb:
+            task_parents[tb].add(tp)
+            task_children[tp].add(tb)
+
+    # Rangs fixes pour les tâches connues.
+    rank = {t: float(_BASE_RANK[t]) for t in tasks_present if t in _BASE_RANK}
+    unknown = [t for t in tasks_present if t not in _BASE_RANK]
+
+    # Intercalation des tâches inconnues entre leurs inputs et leurs outputs.
+    for _ in range(12):
+        for t in unknown:
+            los = [rank[p] for p in task_parents[t] if p in rank]
+            his = [rank[c] for c in task_children[t] if c in rank]
+            lo = max(los) if los else None
+            hi = min(his) if his else None
+            if lo is not None and hi is not None:
+                rank[t] = (lo + hi) / 2.0 if hi > lo else lo + 1.0
+            elif lo is not None:
+                rank[t] = lo + _RANK_STEP / 2.0
+            elif hi is not None:
+                rank[t] = hi - _RANK_STEP / 2.0
+    fallback = (max(rank.values()) if rank else 0.0) + _RANK_STEP
+    for t in unknown:
+        rank.setdefault(t, fallback)
+
+    # La scène interrogée reste tout en bas.
+    start_task = node_task.get(result.start_key)
+    if start_task is not None and rank:
+        rank[start_task] = max(rank.values()) + _RANK_STEP
+
+    # Tri des tâches -> lignes compactées.
+    ordered = sorted(tasks_present, key=lambda t: (rank[t], t))
+    task_to_row = {t: i for i, t in enumerate(ordered)}
+    for k, node in nodes.items():
+        node.row = task_to_row[node_task[k]]
+
+    result.row_tasks = {task_to_row[t]: _ROW_LABEL.get(t, t or "?")
+                        for t in ordered}
+    result.row_levels = {task_to_row[t]: task_level(t) for t in ordered}
+    result.separator_after_row = _separator_row(result.row_levels)
+
+
+def _separator_row(row_levels):
+    """Indice de la dernière ligne « asset » suivie d'au moins une autre."""
+    asset_rows = [r for r, lvl in row_levels.items() if lvl == "asset"]
+    if not asset_rows:
+        return None
+    last_asset = max(asset_rows)
+    if any(r > last_asset for r in row_levels):
+        return last_asset
+    return None
+
+
+def _assign_layout(result):
+    """Assigne node.row (une ligne par tâche) et node.col (ordre).
+
+    Ordre par défaut : niveau asset (modeling, shading, rig) puis, sous un
+    séparateur, niveau shot (tracking, layout, anim, fx, lighting,
+    compositing). Les tâches inconnues sont intercalées d'après leur position
+    dans le graphe (entre leurs inputs et leurs outputs). La scène interrogée
+    reste tout en bas.
     """
     nodes = result.nodes
     if not nodes:
         return
 
-    # La scène de départ reçoit un rang strictement inférieur à toute tâche
-    # (connue ou inconnue) pour se retrouver tout en bas du graphe.
-    start_key = result.start_key
-    _BOTTOM_RANK = _UNKNOWN_RANK + 1
-
-    def eff_rank(node):
-        return _BOTTOM_RANK if node.key == start_key else node.task_rank
-
-    # Rangs présents -> lignes compactées (pas de trous).
-    ranks_present = sorted({eff_rank(n) for n in nodes.values()})
-    rank_to_row = {rank: i for i, rank in enumerate(ranks_present)}
-    for node in nodes.values():
-        node.row = rank_to_row[eff_rank(node)]
-
-    # Libellés de ligne : nom de tâche représentatif par rang.
-    rank_label = {}
-    for node in nodes.values():
-        rank_label.setdefault(eff_rank(node), node.task_name or "?")
-    result.row_tasks = {
-        rank_to_row[rank]: (TASK_ORDER[rank] if rank < len(TASK_ORDER)
-                            else rank_label[rank])
-        for rank in ranks_present
-    }
+    _rank_tasks_into_rows(result)
 
     # Groupes par ligne.
     rows = defaultdict(list)

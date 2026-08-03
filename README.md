@@ -10,8 +10,9 @@ scènes dont elle dépend, coloré selon leur fraîcheur.
   par ligne** — chaque output en **vert** s'il est à sa dernière version
   publiée, en **rouge** sinon avec la version disponible (`rendercam ⚠
   (v001 → v002)`) ;
-* une **ligne par type de tâche**, les sources en haut et le compositing en
-  bas (le flux descend) ; la **scène interrogée est toujours tout en bas** ;
+* une **ligne par type de tâche**, en deux niveaux (**asset** puis **shot**)
+  séparés par un trait, le flux descendant ; lignes **réordonnables** en
+  glissant leur poignée à gauche ; la **scène interrogée** reste tout en bas ;
 * couleur du nœud par **propagation** : **vert** = tous les inputs à jour ·
   **rouge** = importe au moins un asset supplanté · **orange** = obsolète *par
   héritage* seulement (ses inputs sont à jour mais un ancêtre est obsolète) ;
@@ -187,14 +188,15 @@ directement un asset périmé, sinon orange).
 
 ## Interactions
 
-| Action                         | Effet                                       |
-|--------------------------------|---------------------------------------------|
-| **Glisser** un nœud            | Réordonner (déplacement **horizontal** seul)|
-| **Survol** d'un nœud           | Dépendances directes + nom du **graphiste** |
-| **Molette**                    | Zoom (ancré sous le curseur)                |
-| **Bouton du milieu** + glisser | Déplacement (pan)                           |
-| **Recentrer** (`Ctrl+0`)       | Ajuste le zoom pour tout voir               |
-| **Réinitialiser la disposition** | Replace les nœuds dans leurs colonnes     |
+| Action                          | Effet                                      |
+|---------------------------------|--------------------------------------------|
+| **Glisser** un nœud             | Réordonner (déplacement **horizontal** seul)|
+| **Glisser la poignée** de ligne (à gauche) | **Réordonner les lignes** de tâche (vertical) |
+| **Survol** d'un nœud            | Dépendances directes + nom du **graphiste** |
+| **Molette**                     | Zoom (ancré sous le curseur)               |
+| **Bouton du milieu** + glisser  | Déplacement (pan)                          |
+| **Recentrer** (`Ctrl+0`)        | Ajuste le zoom pour tout voir              |
+| **Réinitialiser la disposition**| Rétablit l'ordre des lignes et les colonnes|
 
 ---
 
@@ -210,10 +212,16 @@ directement un asset périmé, sinon orange).
 
 ## Ordre des lignes de tâche
 
-Du haut (sources) vers le bas (compositing) :
+Ordre par défaut, de haut en bas, en **deux niveaux** séparés par un trait :
 
 ```
-modeling · tracking · rigging · layout · shading · animation · lighting · compositing
+niveau asset :   modeling · shading · rig
+──────────────── (séparateur) ────────────────
+niveau shot :    tracking · layout · anim · fx · lighting · compositing
 ```
 
-Une tâche inconnue est placée tout en bas.
+* les tâches **absentes de cette liste** sont **intercalées** d'après le
+  graphe, entre leurs inputs (au-dessus) et leurs outputs (en dessous) ;
+* la **scène interrogée** reste tout en bas ;
+* l'ordre est **modifiable** : glissez la **poignée** à gauche d'une ligne pour
+  la déplacer verticalement ; le séparateur asset/shot se replace tout seul.

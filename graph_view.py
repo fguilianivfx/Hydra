@@ -59,10 +59,19 @@ COL_EDGE_DEFAULT = QColor(172, 180, 192, 90)
 COL_EDGE_FADED = QColor(150, 158, 170, 28)
 COL_EDGE_HILITE = QColor(233, 237, 245, 230)
 
+# Poignée de ligne (à gauche) + séparateur asset/shot.
+COL_HEADER_BG = QColor("#20242b")
+COL_HEADER_HOVER = QColor("#2c323b")
+COL_HEADER_BORDER = QColor("#3a414c")
+COL_SEPARATOR = QColor("#727e8f")
+
 # --- Géométrie --------------------------------------------------------------
 NODE_W = 200.0
 PAD = 11.0
 COL_W = NODE_W + 52.0
+HEADER_H = 26.0            # hauteur de la poignée de ligne
+SEP_EXTRA = 34.0          # espace supplémentaire autour du séparateur
+GUIDE_DX = 18.0
 ROW_GAP = 74.0
 MARGIN_LEFT = 156.0
 MARGIN_TOP = 46.0
@@ -409,6 +418,100 @@ class SceneNodeItem(QGraphicsObject):
 
 
 # ---------------------------------------------------------------------------
+# Ligne de tâche + poignée déplaçable
+# ---------------------------------------------------------------------------
+
+class _RowInfo:
+    """Une ligne de tâche : sa poignée, ses nœuds, son guide."""
+
+    __slots__ = ("task", "level", "nodes", "header", "guide", "top")
+
+    def __init__(self, task, level, nodes):
+        self.task = task
+        self.level = level
+        self.nodes = nodes
+        self.header = None
+        self.guide = None
+        self.top = 0.0
+
+
+class RowHeaderItem(QGraphicsObject):
+    """Poignée à gauche d'une ligne : se déplace verticalement pour réordonner
+    les lignes de tâche (le X reste verrouillé)."""
+
+    WIDTH = MARGIN_LEFT - 26.0
+
+    def __init__(self, text, view):
+        super().__init__()
+        self._text = text
+        self._view = view
+        self._x = 12.0
+        self._hover = False
+        self.row = None                # _RowInfo associé
+        self.setFlag(QGraphicsItem.ItemIsMovable, True)
+        self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
+        self.setAcceptHoverEvents(True)
+        self.setCursor(Qt.SizeVerCursor)
+        self.setToolTip("Glisser pour réordonner les lignes de tâche")
+        self.setZValue(5)
+
+    def boundingRect(self):
+        return QRectF(0.0, 0.0, self.WIDTH, HEADER_H)
+
+    def set_top(self, y):
+        self.setPos(QPointF(self._x, y))
+
+    def itemChange(self, change, value):
+        if change == QGraphicsItem.ItemPositionChange:
+            return QPointF(self._x, value.y())          # verrouille le X
+        if change == QGraphicsItem.ItemPositionHasChanged:
+            self._view._row_header_moved(self)
+        return super().itemChange(change, value)
+
+    def hoverEnterEvent(self, event):
+        self._hover = True
+        self.update()
+        super().hoverEnterEvent(event)
+
+    def hoverLeaveEvent(self, event):
+        self._hover = False
+        self.update()
+        super().hoverLeaveEvent(event)
+
+    def mousePressEvent(self, event):
+        self.setZValue(20)
+        super().mousePressEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.setZValue(5)
+        super().mouseReleaseEvent(event)
+        self._view._row_header_released(self)
+
+    def paint(self, painter, option, widget=None):
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        rect = self.boundingRect().adjusted(0.5, 0.5, -0.5, -0.5)
+        painter.setPen(QPen(COL_HEADER_BORDER, 1.0))
+        painter.setBrush(QBrush(COL_HEADER_HOVER if self._hover
+                                else COL_HEADER_BG))
+        painter.drawRoundedRect(rect, 5.0, 5.0)
+        # petite poignée (deux colonnes de points)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(COL_ROW_LABEL))
+        cy = rect.center().y()
+        for i in range(2):
+            for j in range(3):
+                painter.drawEllipse(QPointF(8.0 + i * 4.0, cy - 4.0 + j * 4.0),
+                                    1.1, 1.1)
+        font = QFont()
+        font.setBold(True)
+        font.setPointSizeF(9.0)
+        painter.setFont(font)
+        painter.setPen(QPen(COL_ROW_LABEL))
+        painter.drawText(rect.adjusted(22.0, 0.0, -4.0, 0.0),
+                         Qt.AlignVCenter | Qt.AlignLeft, self._text)
+
+
+# ---------------------------------------------------------------------------
 # Vue
 # ---------------------------------------------------------------------------
 
@@ -432,7 +535,12 @@ class DependencyGraphView(QGraphicsView):
 
         self._node_items = {}       # key -> SceneNodeItem
         self._edges = []            # list[EdgeItem]
+        self._rows = []             # list[_RowInfo] dans l'ordre d'affichage
+        self._initial_rows = []     # ordre initial (pour reset)
         self._initial_pos = {}      # key -> QPointF (pour reset layout)
+        self._separator = None      # trait séparateur asset/shot
+        self._sep_label = None
+        self._reflowing = False
         self._zoom = 1.0
 
         self._panning = False
@@ -443,7 +551,11 @@ class DependencyGraphView(QGraphicsView):
         self._scene.clear()
         self._node_items.clear()
         self._edges.clear()
+        self._rows = []
+        self._initial_rows = []
         self._initial_pos.clear()
+        self._separator = None
+        self._sep_label = None
 
     def set_graph(self, result):
         """Affiche un graph_model.GraphResult."""
@@ -451,58 +563,47 @@ class DependencyGraphView(QGraphicsView):
         if not result.nodes:
             return
 
-        # 1) créer les items (hauteurs connues ensuite).
+        # 1) items nœud.
         for key, node in result.nodes.items():
             item = SceneNodeItem(node)
             item.hovered.connect(self._on_node_hover)
             item.unhovered.connect(self._on_node_unhover)
             self._node_items[key] = item
             self._scene.addItem(item)
+            item.setPos(QPointF(MARGIN_LEFT + node.col * COL_W, MARGIN_TOP))
 
-        # 2) hauteur de chaque ligne = plus haut nœud de la ligne.
-        rows = {}
-        for key, item in self._node_items.items():
-            rows.setdefault(item.node.row, []).append(item)
-        max_row = max(rows)
-        row_h = {r: max((it.height() for it in rows[r]), default=MIN_ROW_H)
-                 for r in rows}
-        row_y = {}
-        y = MARGIN_TOP
-        for r in range(max_row + 1):
-            row_y[r] = y
-            y += row_h.get(r, MIN_ROW_H) + ROW_GAP
-
-        # 3) positionner les nœuds (X = colonne, Y = ligne verrouillée).
-        for key, item in self._node_items.items():
-            node = item.node
-            x = MARGIN_LEFT + node.col * COL_W
-            yy = row_y[node.row]
-            item.set_row_y(yy)
-            item.setPos(QPointF(x, yy))
-            self._initial_pos[key] = QPointF(x, yy)
-
-        # 4) libellés de ligne + guides horizontaux.
-        scene_right = MARGIN_LEFT + (max(
-            (it.node.col for it in self._node_items.values()), default=0
-        ) + 1) * COL_W
-        for r, task in result.row_tasks.items():
-            yy = row_y[r]
-            guide = self._scene.addLine(
-                QLineF(MARGIN_LEFT - 18, yy - ROW_GAP * 0.4,
-                       scene_right, yy - ROW_GAP * 0.4),
-                QPen(COL_ROW_GUIDE, 1.0))
+        # 2) lignes (une par tâche, dans l'ordre du modèle) + poignées + guides.
+        by_row = {}
+        for item in self._node_items.values():
+            by_row.setdefault(item.node.row, []).append(item)
+        for r in sorted(by_row):
+            info = _RowInfo(result.row_tasks.get(r, "?"),
+                            result.row_levels.get(r, "other"),
+                            by_row[r])
+            header = RowHeaderItem(info.task, self)
+            header.row = info
+            info.header = header
+            self._scene.addItem(header)
+            guide = self._scene.addLine(QLineF(), QPen(COL_ROW_GUIDE, 1.0))
             guide.setZValue(-3)
-            label = QGraphicsSimpleTextItem(task)
-            f = QFont()
-            f.setBold(True)
-            f.setPointSizeF(9.5)
-            label.setFont(f)
-            label.setBrush(QBrush(COL_ROW_LABEL))
-            label.setPos(QPointF(14, yy + 2))
-            label.setZValue(-2)
-            self._scene.addItem(label)
+            info.guide = guide
+            self._rows.append(info)
+        self._initial_rows = list(self._rows)
 
-        # 5) arêtes.
+        # 3) séparateur asset / shot.
+        pen = QPen(COL_SEPARATOR, 1.4)
+        pen.setStyle(Qt.DashLine)
+        self._separator = self._scene.addLine(QLineF(), pen)
+        self._separator.setZValue(-2)
+        self._sep_label = QGraphicsSimpleTextItem("assets  /  shot")
+        f = QFont()
+        f.setPointSizeF(8.0)
+        self._sep_label.setFont(f)
+        self._sep_label.setBrush(QBrush(COL_SEPARATOR))
+        self._sep_label.setZValue(-2)
+        self._scene.addItem(self._sep_label)
+
+        # 4) arêtes.
         for top_key, bottom_key in result.edges:
             src = self._node_items.get(top_key)
             dst = self._node_items.get(bottom_key)
@@ -514,11 +615,84 @@ class DependencyGraphView(QGraphicsView):
             src.add_edge(edge)
             dst.add_edge(edge)
 
+        # 5) placement.
+        self._reflow(record_initial=True)
+        self.reset_view()
+
+    # --- disposition des lignes --------------------------------------------
+    def _scene_right(self):
+        max_col = max((it.node.col for it in self._node_items.values()),
+                      default=0)
+        return MARGIN_LEFT + (max_col + 1) * COL_W
+
+    def _separator_after_index(self):
+        """Indice de la dernière ligne « asset » suivie d'au moins une autre."""
+        asset_idx = [i for i, row in enumerate(self._rows)
+                     if row.level == "asset"]
+        if not asset_idx:
+            return None
+        last = max(asset_idx)
+        return last if last < len(self._rows) - 1 else None
+
+    def _reflow(self, record_initial=False):
+        """Recalcule les Y de chaque ligne et repositionne tout."""
+        if not self._rows:
+            return
+        self._reflowing = True
+        right = self._scene_right()
+        sep_after = self._separator_after_index()
+        y = MARGIN_TOP
+        for i, row in enumerate(self._rows):
+            row.top = y
+            height = max((it.height() for it in row.nodes), default=MIN_ROW_H)
+            row.guide.setLine(MARGIN_LEFT - GUIDE_DX, y - ROW_GAP * 0.4,
+                              right, y - ROW_GAP * 0.4)
+            row.header.set_top(y)
+            for it in row.nodes:
+                it.set_row_y(y)
+                it.setPos(QPointF(it.x(), y))
+                if record_initial:
+                    self._initial_pos[it.node.key] = QPointF(it.x(), y)
+            y += height + ROW_GAP
+            if sep_after is not None and i == sep_after:
+                sep_y = y - ROW_GAP * 0.5
+                self._separator.setLine(MARGIN_LEFT - GUIDE_DX, sep_y,
+                                        right, sep_y)
+                self._separator.setVisible(True)
+                self._sep_label.setPos(QPointF(14, sep_y - 15))
+                self._sep_label.setVisible(True)
+                y += SEP_EXTRA
+        if sep_after is None:
+            self._separator.setVisible(False)
+            self._sep_label.setVisible(False)
+        for edge in self._edges:
+            edge.update_path()
+        self._reflowing = False
+        self._update_scene_rect()
+
+    def _update_scene_rect(self):
         margin = 80.0
         self._scene.setSceneRect(
             self._scene.itemsBoundingRect().adjusted(
                 -margin, -margin, margin, margin))
-        self.reset_view()
+
+    def _row_header_moved(self, header):
+        """Suivi live : la ligne (nœuds + guide) suit la poignée pendant le drag."""
+        if self._reflowing or header.row is None:
+            return
+        y = header.y()
+        row = header.row
+        right = self._scene_right()
+        row.guide.setLine(MARGIN_LEFT - GUIDE_DX, y - ROW_GAP * 0.4,
+                          right, y - ROW_GAP * 0.4)
+        for it in row.nodes:
+            it.set_row_y(y)
+            it.setPos(QPointF(it.x(), y))
+
+    def _row_header_released(self, header):
+        """Réordonne les lignes selon la position verticale des poignées."""
+        self._rows.sort(key=lambda row: row.header.y())
+        self._reflow()
 
     # --- survol : mise en évidence des voisins directs ----------------------
     def _on_node_hover(self, item):
@@ -601,12 +775,13 @@ class DependencyGraphView(QGraphicsView):
         self._zoom = self.transform().m11()
 
     def reset_layout(self):
-        """Remet chaque nœud à sa position initiale (colonnes calculées)."""
+        """Rétablit l'ordre des lignes et les colonnes d'origine."""
+        if not self._rows:
+            return
+        self._rows = list(self._initial_rows)
         for key, item in self._node_items.items():
             pos = self._initial_pos.get(key)
             if pos is not None:
-                item.set_row_y(pos.y())
-                item.setPos(pos)
-        for edge in self._edges:
-            edge.update_path()
+                item.setPos(QPointF(pos.x(), item.y()))   # restaure le X
+        self._reflow()
         self.reset_view()

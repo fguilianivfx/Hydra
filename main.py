@@ -287,9 +287,9 @@ class MainWindow(QMainWindow):
         swatch(COL_INHERITED_BORDER, "périmé par héritage")
         swatch(COL_START_BORDER, "scène de départ", border=True)
         lay.addStretch(1)
-        tip = QLabel("Survol : dépendances directes · Molette : zoom · "
-                     "Bouton du milieu : déplacer · Glisser un nœud : "
-                     "réordonner (horizontal)")
+        tip = QLabel("Survol : dépendances + graphiste · Molette : zoom · "
+                     "Bouton du milieu : pan · Glisser un nœud : horizontal · "
+                     "Glisser une poignée de ligne : réordonner les tâches")
         tip.setStyleSheet("color:#8a93a0;")
         lay.addWidget(tip)
         return w
