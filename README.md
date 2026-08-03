@@ -42,9 +42,15 @@ pip install -r requirements.txt
 **MariaDB Connector/C** ; si `mariadb` n'est pas importable, l'appli bascule
 automatiquement sur `pymysql` (100 % Python).
 
-> Le module `keyring` est **optionnel** : s'il est installé, la case
-> « Remember » enregistre le mot de passe MySQL dans le **trousseau
-> système**. Sans lui, **aucun mot de passe n'est jamais écrit sur disque**.
+Le module `keyring` active la case **« Remember »**, qui enregistre le mot de
+passe MySQL dans le **trousseau système** (Windows Credential Manager, macOS
+Keychain, Secret Service sous Linux) :
+
+* cocher la case l'enregistre **immédiatement** (puis à chaque connexion
+  réussie et à la fermeture) ;
+* **décocher supprime** l'entrée stockée ;
+* le mot de passe n'est **jamais** écrit dans le fichier de réglages de
+  l'appli. Sans `keyring`, la case est désactivée et rien n'est persisté.
 
 ## Lancement
 

@@ -162,11 +162,18 @@ class MainWindow(QMainWindow):
         grid.addLayout(pass_row, 1, 1, 1, 3)
 
         self.my_remember = QCheckBox("Remember (system keyring)")
-        if not _HAS_KEYRING:
+        if _HAS_KEYRING:
+            self.my_remember.setToolTip(
+                "Store the password in the OS keyring (Windows Credential "
+                "Manager, macOS Keychain, Secret Service). Never written to "
+                "the app's settings file.")
+            self.my_remember.toggled.connect(self._on_remember_toggled)
+        else:
             self.my_remember.setEnabled(False)
             self.my_remember.setToolTip(
-                "Install the 'keyring' module to enable this option. "
-                "Without it, no password is ever written to disk.")
+                "Install the 'keyring' module to enable this option "
+                "(pip install keyring). Without it, no password is ever "
+                "written to disk.")
         grid.addWidget(self.my_remember, 2, 1, 1, 3)
 
         btn_test = QPushButton("Test connection")
@@ -343,6 +350,8 @@ class MainWindow(QMainWindow):
         color = "#4fa06d" if ok else "#c9564e"
         self.my_status.setText(msg)
         self.my_status.setStyleSheet(f"color:{color};")
+        if ok:
+            self._store_password()
 
     # ------------------------------------------------------- data loading --
     def _current_source(self):
@@ -422,22 +431,75 @@ class MainWindow(QMainWindow):
             f"\"{scene_name}\": {stats['nodes']} scenes, "
             f"{stats['edges']} links "
             f"({len(assets)} assets, {len(scenes)} scenes in DB).")
-        self._maybe_store_password()
+        self._store_password()
 
     def _error(self, message, title="Error"):
         self.statusBar().showMessage(message)
         QMessageBox.warning(self, title, message)
 
+    # ------------------------------------------------- keyring (password) --
+    def _on_remember_toggled(self, checked):
+        """Coché : enregistre tout de suite · décoché : oublie."""
+        if checked:
+            self._store_password(verbose=True)
+        else:
+            self._forget_password(verbose=True)
+
+    def _store_password(self, verbose=False):
+        """Enregistre le mot de passe dans le trousseau système."""
+        if not (_HAS_KEYRING and self.my_remember.isChecked()):
+            return
+        user = self.my_user.text().strip()
+        pwd = self.my_pass.text()
+        if not user or not pwd:
+            if verbose:
+                self._keyring_status(
+                    "Enter user and password to remember them.", ok=False)
+            return
+        # Si le login a changé, on nettoie l'entrée précédente.
+        previous = self._settings.value("mysql/remember_user", "")
+        if previous and previous != user:
+            self._delete_password(previous)
+        try:
+            keyring.set_password(_KEYRING_SERVICE, user, pwd)
+        except Exception as exc:      # message sans le mot de passe
+            if verbose:
+                self._keyring_status(f"Keyring error: {exc}", ok=False)
+            return
+        self._settings.setValue("mysql/remember_user", user)
+        if verbose:
+            self._keyring_status(f"Password saved for \"{user}\".", ok=True)
+
+    def _forget_password(self, verbose=False):
+        """Supprime le mot de passe stocké (décochage)."""
+        if not _HAS_KEYRING:
+            return
+        user = (self._settings.value("mysql/remember_user", "")
+                or self.my_user.text().strip())
+        self._settings.remove("mysql/remember_user")
+        if not user:
+            return
+        ok = self._delete_password(user)
+        if verbose:
+            self._keyring_status(
+                f"Stored password removed for \"{user}\"." if ok
+                else "No stored password to remove.", ok=True)
+
+    @staticmethod
+    def _delete_password(user):
+        try:
+            keyring.delete_password(_KEYRING_SERVICE, user)
+            return True
+        except Exception:
+            return False   # entrée absente : rien à faire
+
+    def _keyring_status(self, message, ok):
+        color = "#4fa06d" if ok else "#c9564e"
+        self.my_status.setText(message)
+        self.my_status.setStyleSheet(f"color:{color};")
+        self.statusBar().showMessage(message)
+
     # --------------------------------------------------------- settings ----
-    def _maybe_store_password(self):
-        if _HAS_KEYRING and self.my_remember.isChecked():
-            user = self.my_user.text().strip()
-            pwd = self.my_pass.text()
-            if user and pwd:
-                try:
-                    keyring.set_password(_KEYRING_SERVICE, user, pwd)
-                except Exception:
-                    pass  # jamais bloquant, jamais journalisé
 
     def _restore_settings(self):
         s = self._settings
@@ -456,15 +518,23 @@ class MainWindow(QMainWindow):
         # Le mot de passe n'est jamais lu depuis QSettings ; seulement du
         # trousseau système si l'utilisateur l'a explicitement demandé.
         if _HAS_KEYRING and s.value("mysql/remember", "false") == "true":
+            # setChecked déclencherait _on_remember_toggled (et un faux
+            # message d'erreur, le champ étant encore vide) : on le bloque.
+            self.my_remember.blockSignals(True)
             self.my_remember.setChecked(True)
-            user = self.my_user.text().strip()
+            self.my_remember.blockSignals(False)
+            user = (s.value("mysql/remember_user", "")
+                    or self.my_user.text().strip())
             if user:
                 try:
                     pwd = keyring.get_password(_KEYRING_SERVICE, user)
-                    if pwd:
-                        self.my_pass.setText(pwd)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    self.statusBar().showMessage(f"Keyring error: {exc}")
+                    pwd = None
+                if pwd:
+                    self.my_pass.setText(pwd)
+                    if not self.my_user.text().strip():
+                        self.my_user.setText(user)
 
     def _save_settings(self):
         s = self._settings
@@ -478,7 +548,9 @@ class MainWindow(QMainWindow):
         s.setValue("mysql/remember",
                    "true" if (_HAS_KEYRING and self.my_remember.isChecked())
                    else "false")
-        # Le mot de passe n'est JAMAIS écrit dans QSettings.
+        # Le mot de passe n'est JAMAIS écrit dans QSettings : il part dans le
+        # trousseau système, et seulement si « Remember » est coché.
+        self._store_password()
 
     def closeEvent(self, event):
         self._save_settings()
