@@ -100,9 +100,15 @@ class LinkDetailsDialog(QDialog):
 
     def show_link(self, info):
         state = ("  —  <b>DISABLED</b>" if info["disabled"] else "")
+        if info["carries_stale"]:
+            verdict = ("<span style='color:#b4392c;'>This link carries an "
+                       "outdated asset.</span>")
+        else:
+            verdict = ("<span style='color:#1c7a44;'>All assets through this "
+                       "link are up to date.</span>")
         self._header.setText(
             f"<b>{info['parent']}</b><br>&nbsp;&nbsp;↓ feeds<br>"
-            f"<b>{info['child']}</b>{state}")
+            f"<b>{info['child']}</b>{state}<br>{verdict}")
 
         self._tree.clear()
         # 1) ce qui transite réellement par ce lien.

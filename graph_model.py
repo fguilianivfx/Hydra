@@ -141,7 +141,8 @@ class GraphResult:
 
     __slots__ = ("nodes", "edges", "start_key", "row_tasks", "row_levels",
                  "separator_after_row", "stats",
-                 "edge_assets", "edge_details", "stale_asset_ids")
+                 "edge_assets", "edge_details", "stale_asset_ids",
+                 "stale_edges")
 
     def __init__(self):
         self.nodes = {}            # key -> SceneNode
@@ -157,6 +158,8 @@ class GraphResult:
         self.edge_assets = {}      # (top, bottom) -> frozenset[asset_id]
         self.edge_details = {}     # (top, bottom) -> [(label, version, latest)]
         self.stale_asset_ids = frozenset()
+        # Liens dont au moins un asset transporté est supplanté.
+        self.stale_edges = frozenset()
 
 
 # ---------------------------------------------------------------------------
@@ -422,6 +425,11 @@ def build_graph(assets, scenes, binds, input_name):
     result.stale_asset_ids = frozenset(
         aid for aid in seen_assets
         if _input_is_stale(assets.get(aid), asset_stream_max))
+    # Liens qui transportent au moins un asset supplanté : sert à colorer le
+    # lien responsable de l'obsolescence d'un nœud rouge.
+    result.stale_edges = frozenset(
+        edge for edge, aids in result.edge_assets.items()
+        if aids & result.stale_asset_ids)
 
     # Statut par propagation à trois états :
     #   stale (rouge)     = importe au moins un asset supplanté ;

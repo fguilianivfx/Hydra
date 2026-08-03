@@ -139,7 +139,8 @@ class EdgeItem(QGraphicsPathItem):
     STATE_HILITE = 1
     STATE_FADED = 2
 
-    def __init__(self, src_item, dst_item, top_key, bottom_key, view=None):
+    def __init__(self, src_item, dst_item, top_key, bottom_key, view=None,
+                 carries_stale=False):
         super().__init__()
         self.src = src_item          # parent (row du haut)
         self.dst = dst_item          # enfant (row du bas)
@@ -147,6 +148,8 @@ class EdgeItem(QGraphicsPathItem):
         self.bottom_key = bottom_key
         self.key = (top_key, bottom_key)
         self._view = view
+        # Ce lien transporte-t-il au moins un asset supplanté ?
+        self.carries_stale = carries_stale
         self._arrow_size = 9.0
         self._state = self.STATE_DEFAULT
         self.disabled = False        # désactivation temporaire (en mémoire)
@@ -161,14 +164,20 @@ class EdgeItem(QGraphicsPathItem):
         self.refresh_appearance()
         self.update_path()
 
-    # --- couleur : celle du nœud enfant -------------------------------------
+    # --- couleur du lien ----------------------------------------------------
     def _base_color(self):
-        """Couleur du lien = couleur (bordure) du rectangle enfant."""
+        """Couleur du lien, d'après l'enfant et les assets qu'il transporte.
+
+        * enfant vert            -> lien vert ;
+        * enfant jaune (obsolète par héritage) -> lien jaune ;
+        * enfant rouge           -> rouge si CE lien transporte un asset
+          supplanté, vert sinon (ce lien n'est pas responsable).
+        """
         status = self.dst.node.status
-        if status == "stale":
-            return COL_STALE_BORDER
         if status == "inherited":
             return COL_INHERITED_BORDER
+        if status == "stale":
+            return COL_STALE_BORDER if self.carries_stale else COL_OK_BORDER
         return COL_OK_BORDER
 
     def refresh_appearance(self):
@@ -199,8 +208,11 @@ class EdgeItem(QGraphicsPathItem):
         pen.setJoinStyle(Qt.RoundJoin)
         self._pen = pen
         self.setPen(pen)
+        carried = ("carries an outdated asset" if self.carries_stale
+                   else "all assets up to date")
         self.setToolTip(
             f"{self.src.node.display_name}\n→ {self.dst.node.display_name}\n"
+            f"This link: {carried}\n"
             + ("DISABLED — right-click to re-enable"
                if self.disabled else
                "Click: details · Right-click: disable this link"))
@@ -723,7 +735,9 @@ class DependencyGraphView(QGraphicsView):
             dst = self._node_items.get(bottom_key)
             if src is None or dst is None:
                 continue
-            edge = EdgeItem(src, dst, top_key, bottom_key, view=self)
+            edge = EdgeItem(src, dst, top_key, bottom_key, view=self,
+                            carries_stale=(top_key, bottom_key)
+                            in result.stale_edges)
             self._scene.addItem(edge)
             self._edges.append(edge)
             src.add_edge(edge)
@@ -759,6 +773,7 @@ class DependencyGraphView(QGraphicsView):
             "parent_status": edge.src.node.status,
             "child_status": edge.dst.node.status,
             "disabled": edge.disabled,
+            "carries_stale": edge.carries_stale,
             # Assets exportés par le parent et importés par l'enfant.
             "assets": list(details),
             "parent_outputs": list(edge.src.node.outputs),
