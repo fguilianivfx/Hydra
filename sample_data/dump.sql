@@ -1,4 +1,4 @@
--- Hydra sample mysqldump
+-- Dedale sample mysqldump
 -- Base : dd_assets_tracking
 
 CREATE TABLE `assets` (

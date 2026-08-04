@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hydra — graphe interactif de dépendances de scènes (PySide6).
+"""Dedale — graphe interactif de dépendances de scènes (PySide6).
 
 Application de bureau native. À partir du nom d'une scène et d'une source de
 données (MySQL / CSV / dump SQL), affiche un graphe interactif des scènes dont
@@ -55,7 +55,12 @@ except Exception:  # pragma: no cover
     keyring = None
     _HAS_KEYRING = False
 
-_KEYRING_SERVICE = "Hydra-DependencyGraph"
+_KEYRING_SERVICE = "Dedale-DependencyGraph"
+_ORG = "Dedale"
+_APP = "DependencyGraph"
+# Anciens noms (outil renommé) : migrés au premier lancement.
+_LEGACY_KEYRING_SERVICE = "Hydra-DependencyGraph"
+_LEGACY_ORG = "Hydra"
 _DEFAULT_SCENE = "qua_077_02000_comp_v019"
 
 
@@ -143,10 +148,11 @@ class LinkDetailsDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Hydra — Scene Dependency Graph")
+        self.setWindowTitle("Dedale — Scene Dependency Graph")
         self.resize(1280, 860)
 
-        self._settings = QSettings("Hydra", "DependencyGraph")
+        self._settings = QSettings(_ORG, _APP)
+        self._migrate_legacy_settings()
         # Cache des données par signature de source (en mémoire uniquement).
         self._data_cache = {}
         self._link_dialog = None
@@ -614,6 +620,35 @@ class MainWindow(QMainWindow):
 
     # --------------------------------------------------------- settings ----
 
+    def _migrate_legacy_settings(self):
+        """Reprend les réglages/mot de passe de l'ancien nom de l'outil.
+
+        L'outil s'appelait « Hydra » : on récupère une seule fois ses réglages
+        et son entrée de trousseau, puis on efface les anciens pour ne pas
+        laisser traîner un identifiant orphelin.
+        """
+        legacy = QSettings(_LEGACY_ORG, _APP)
+        keys = legacy.allKeys()
+        if keys and not self._settings.allKeys():
+            for key in keys:
+                self._settings.setValue(key, legacy.value(key))
+            self._settings.sync()
+        legacy_user = legacy.value("mysql/remember_user", "") or \
+            legacy.value("mysql/user", "")
+        if keys:
+            legacy.clear()
+            legacy.sync()
+
+        if not (_HAS_KEYRING and legacy_user):
+            return
+        try:
+            pwd = keyring.get_password(_LEGACY_KEYRING_SERVICE, legacy_user)
+            if pwd:
+                keyring.set_password(_KEYRING_SERVICE, legacy_user, pwd)
+            keyring.delete_password(_LEGACY_KEYRING_SERVICE, legacy_user)
+        except Exception:
+            pass   # rien de bloquant : au pire, à ressaisir une fois
+
     def _restore_settings(self):
         s = self._settings
         # Ancien réglage devenu obsolète (la base vient de $MYSQL_DATABASE) :
@@ -672,7 +707,7 @@ class MainWindow(QMainWindow):
 
 def main():
     app = QApplication(sys.argv)
-    app.setApplicationName("Hydra — Dependency Graph")
+    app.setApplicationName("Dedale — Dependency Graph")
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

@@ -1,4 +1,4 @@
-# Hydra — Graphe interactif de dépendances de scènes
+# Dedale — Graphe interactif de dépendances de scènes
 
 Application de bureau **native** (Python + **PySide6**) qui, à partir du nom
 d'une scène et d'une source de données, affiche un **graphe interactif** des
