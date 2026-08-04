@@ -82,6 +82,12 @@ MIN_ROW_H = 70.0
 
 FADE_OPACITY = 0.16
 
+# Zoom : pas de la molette et bornes absolues. La borne basse est encore
+# abaissée pour les très grands graphes (voir _zoom_bounds).
+ZOOM_STEP = 1.15
+ZOOM_MIN = 0.02
+ZOOM_MAX = 12.0
+
 
 def abbreviate_node(name):
     """Abrège un node_name long (camera_layer_01_camera_abc -> camera)."""
@@ -1021,17 +1027,37 @@ class DependencyGraphView(QGraphicsView):
             edge.set_state(EdgeItem.STATE_DEFAULT)
 
     # --- zoom / pan ---------------------------------------------------------
+    def _zoom_bounds(self):
+        """Bornes de zoom, adaptées à la taille du graphe.
+
+        Un graphe très large impose un facteur d'ajustement minuscule : la
+        borne basse doit descendre au moins jusque-là, sinon on ne peut plus
+        zoomer du tout.
+        """
+        low, high = ZOOM_MIN, ZOOM_MAX
+        rect = self._visible_bounding_rect()
+        if not rect.isEmpty():
+            vp = self.viewport().rect()
+            if rect.width() > 0 and rect.height() > 0:
+                fit = min(vp.width() / rect.width(),
+                          vp.height() / rect.height())
+                low = min(low, fit * 0.5)
+        return low, high
+
     def wheelEvent(self, event):
-        step = 1.15
-        if event.angleDelta().y() > 0:
-            factor = step
-        else:
-            factor = 1.0 / step
-        new_zoom = self._zoom * factor
-        if new_zoom < 0.08 or new_zoom > 8.0:
+        factor = ZOOM_STEP if event.angleDelta().y() > 0 else 1.0 / ZOOM_STEP
+        # La transformation fait foi (évite toute dérive de _zoom).
+        current = self.transform().m11()
+        low, high = self._zoom_bounds()
+        # On borne le RÉSULTAT au lieu de refuser le geste : un zoom qui
+        # ramène vers la plage autorisée reste toujours possible.
+        target = max(low, min(high, current * factor))
+        if current <= 0 or abs(target - current) < 1e-12:
+            event.accept()
             return
-        self._zoom = new_zoom
-        self.scale(factor, factor)
+        self.scale(target / current, target / current)
+        self._zoom = target
+        event.accept()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MiddleButton:
