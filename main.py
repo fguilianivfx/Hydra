@@ -202,6 +202,23 @@ class MainWindow(QMainWindow):
         self.btn_graph.clicked.connect(self._on_grapher)
         lay.addWidget(self.btn_graph)
 
+        lay.addSpacing(10)
+        lay.addWidget(self._bold_label("Display"))
+        self.chk_show_disconnected = QCheckBox(
+            "Show nodes cut off by disabled links")
+        self.chk_show_disconnected.setChecked(True)
+        self.chk_show_disconnected.setToolTip(
+            "When a link is disabled, the parents it fed may no longer reach "
+            "the queried scene. Uncheck to hide them.")
+        self.chk_show_disconnected.toggled.connect(
+            lambda on: self.view.set_show_disconnected(on))
+        lay.addWidget(self.chk_show_disconnected)
+
+        self.lbl_hidden = QLabel("")
+        self.lbl_hidden.setStyleSheet("color:#8a93a0;")
+        self.lbl_hidden.setWordWrap(True)
+        lay.addWidget(self.lbl_hidden)
+
         lay.addStretch(1)
         return panel
 
@@ -214,6 +231,7 @@ class MainWindow(QMainWindow):
         self.view = DependencyGraphView()
         self.view.edge_selected.connect(self._on_edge_selected)
         self.view.links_changed.connect(self._on_links_changed)
+        self.view.hidden_nodes_changed.connect(self._on_hidden_nodes_changed)
         lay.addWidget(self.view, 1)
         lay.addWidget(self._build_legend())
         return panel
@@ -545,6 +563,12 @@ class MainWindow(QMainWindow):
         if self._link_dialog is None:
             self._link_dialog = LinkDetailsDialog(self)
         self._link_dialog.show_link(info)
+
+    def _on_hidden_nodes_changed(self, hidden_count):
+        """Rappelle combien de nœuds sont masqués par l'option d'affichage."""
+        self.lbl_hidden.setText(
+            f"{hidden_count} node(s) hidden (no active path to the queried "
+            "scene)." if hidden_count else "")
 
     def _on_links_changed(self, disabled_count):
         """Un lien a été désactivé/réactivé (changement temporaire)."""

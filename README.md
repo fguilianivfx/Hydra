@@ -220,6 +220,14 @@ passait par ce lien redevient vert. Un second clic droit le réactive
 > n'est écrit dans la base de données**, et tout est perdu dès qu'un nouveau
 > graphe est affiché.
 
+**Masquer les nœuds coupés** — la case *« Show nodes cut off by disabled
+links »* (panneau de gauche) masque les nœuds qui n'ont plus **aucun chemin
+actif** jusqu'à la scène interrogée, c'est-à-dire ceux qui n'y sont plus reliés
+que par des liens désactivés. Le masquage est **récursif** (un parent qui
+n'alimentait que des nœuds masqués disparaît aussi), les lignes de tâche
+devenues vides sont escamotées, et la scène interrogée reste toujours visible.
+Le nombre de nœuds masqués est rappelé sous la case.
+
 > Nuance : le nœud à l'origine d'une republication (ex. un `modeling` dont un
 > `v007` existe alors que le graphe tire le `v005`) reste **vert** — ses
 > propres inputs sont sains — mais ses lignes d'output apparaissent en **rouge**

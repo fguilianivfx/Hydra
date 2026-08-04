@@ -14,6 +14,7 @@ Aucune dépendance à une librairie de graphe externe.
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 
 from PySide6.QtCore import QLineF, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import (
@@ -637,6 +638,8 @@ class DependencyGraphView(QGraphicsView):
     edge_selected = Signal(object)
     # Émis quand des liens sont désactivés/réactivés (nb de liens désactivés).
     links_changed = Signal(int)
+    # Émis quand des nœuds sont masqués/réaffichés (nb de nœuds masqués).
+    hidden_nodes_changed = Signal(int)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -667,6 +670,9 @@ class DependencyGraphView(QGraphicsView):
         # Liens désactivés temporairement : en mémoire uniquement, remis à
         # zéro à chaque nouveau graphe, jamais écrits en base.
         self._disabled_edges = set()
+        # Afficher les nœuds devenus inaccessibles (reliés uniquement par des
+        # liens désactivés) ?
+        self._show_disconnected = True
 
         self._panning = False
         self._pan_last = None
@@ -820,6 +826,64 @@ class DependencyGraphView(QGraphicsView):
             item.refresh_status()
         for edge in self._edges:
             edge.refresh_appearance()
+        self._update_visibility()
+
+    # --- visibilité des nœuds coupés du graphe ------------------------------
+    def set_show_disconnected(self, show):
+        """Affiche ou masque les nœuds reliés uniquement par des liens désactivés."""
+        show = bool(show)
+        if show == self._show_disconnected:
+            return
+        self._show_disconnected = show
+        self._update_visibility()
+
+    def show_disconnected(self):
+        return self._show_disconnected
+
+    def _reachable_keys(self):
+        """Nœuds ayant encore un chemin ACTIF jusqu'à la scène interrogée.
+
+        On remonte depuis S0 en suivant les liens non désactivés (enfant ->
+        parent). Les nœuds hors de cet ensemble ne sont plus reliés au graphe
+        que par des liens désactivés.
+        """
+        if self._result is None:
+            return set()
+        parents_of = defaultdict(list)
+        for edge in self._edges:
+            if not edge.disabled:
+                parents_of[edge.bottom_key].append(edge.top_key)
+        start = self._result.start_key
+        seen = {start}
+        stack = [start]
+        while stack:
+            key = stack.pop()
+            for parent in parents_of.get(key, ()):
+                if parent not in seen:
+                    seen.add(parent)
+                    stack.append(parent)
+        return seen
+
+    def hidden_node_count(self):
+        if self._show_disconnected or self._result is None:
+            return 0
+        return len(self._node_items) - len(self._reachable_keys())
+
+    def _update_visibility(self):
+        """Applique l'option d'affichage et replace ce qui reste."""
+        if self._result is None:
+            return
+        if self._show_disconnected:
+            visible = set(self._node_items)
+        else:
+            visible = self._reachable_keys()
+        for key, item in self._node_items.items():
+            item.setVisible(key in visible)
+        for edge in self._edges:
+            edge.setVisible(edge.top_key in visible
+                            and edge.bottom_key in visible)
+        self._reflow()
+        self.hidden_nodes_changed.emit(len(self._node_items) - len(visible))
 
     # --- survol d'un lien ---------------------------------------------------
     def _on_edge_hover(self, edge):
@@ -830,30 +894,48 @@ class DependencyGraphView(QGraphicsView):
 
     # --- disposition des lignes --------------------------------------------
     def _scene_right(self):
-        max_col = max((it.node.col for it in self._node_items.values()),
-                      default=0)
+        max_col = max((it.node.col for it in self._node_items.values()
+                       if it.isVisible()), default=0)
         return MARGIN_LEFT + (max_col + 1) * COL_W
 
-    def _separator_after_index(self):
+    @staticmethod
+    def _visible_nodes(row):
+        return [it for it in row.nodes if it.isVisible()]
+
+    def _separator_after_index(self, rows=None):
         """Indice de la dernière ligne « asset » suivie d'au moins une autre."""
-        asset_idx = [i for i, row in enumerate(self._rows)
-                     if row.level == "asset"]
+        rows = self._rows if rows is None else rows
+        asset_idx = [i for i, row in enumerate(rows) if row.level == "asset"]
         if not asset_idx:
             return None
         last = max(asset_idx)
-        return last if last < len(self._rows) - 1 else None
+        return last if last < len(rows) - 1 else None
 
     def _reflow(self, record_initial=False):
-        """Recalcule les Y de chaque ligne et repositionne tout."""
+        """Recalcule les Y de chaque ligne et repositionne tout.
+
+        Les lignes dont tous les nœuds sont masqués sont escamotées (pas de
+        bande vide au milieu du graphe).
+        """
         if not self._rows:
             return
         self._reflowing = True
         right = self._scene_right()
-        sep_after = self._separator_after_index()
+        # Lignes réellement affichées ; les autres sont entièrement cachées.
+        shown = []
+        for row in self._rows:
+            visible = self._visible_nodes(row)
+            has_content = bool(visible)
+            row.header.setVisible(has_content)
+            row.guide.setVisible(has_content)
+            if has_content:
+                shown.append(row)
+        sep_after = self._separator_after_index(shown)
         y = MARGIN_TOP
-        for i, row in enumerate(self._rows):
+        for i, row in enumerate(shown):
             row.top = y
-            height = max((it.height() for it in row.nodes), default=MIN_ROW_H)
+            visible = self._visible_nodes(row)
+            height = max((it.height() for it in visible), default=MIN_ROW_H)
             row.guide.setLine(MARGIN_LEFT - GUIDE_DX, y - ROW_GAP * 0.4,
                               right, y - ROW_GAP * 0.4)
             row.header.set_top(y)
@@ -879,11 +961,22 @@ class DependencyGraphView(QGraphicsView):
         self._reflowing = False
         self._update_scene_rect()
 
+    def _visible_bounding_rect(self):
+        """Emprise des seuls items visibles (itemsBoundingRect inclut les
+        items masqués, ce qui laisserait du vide autour du graphe)."""
+        rect = QRectF()
+        for item in self._scene.items():
+            if item.isVisible():
+                rect = rect.united(item.sceneBoundingRect())
+        return rect
+
     def _update_scene_rect(self):
         margin = 80.0
+        rect = self._visible_bounding_rect()
+        if rect.isNull():
+            return
         self._scene.setSceneRect(
-            self._scene.itemsBoundingRect().adjusted(
-                -margin, -margin, margin, margin))
+            rect.adjusted(-margin, -margin, margin, margin))
 
     def _row_header_moved(self, header):
         """Suivi live : la ligne (nœuds + guide) suit la poignée pendant le drag."""
@@ -979,7 +1072,7 @@ class DependencyGraphView(QGraphicsView):
     # --- actions ------------------------------------------------------------
     def reset_view(self):
         """Recentre et ajuste le zoom pour voir tout le graphe."""
-        rect = self._scene.itemsBoundingRect()
+        rect = self._visible_bounding_rect()
         if rect.isEmpty():
             return
         self.resetTransform()
