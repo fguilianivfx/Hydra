@@ -6,14 +6,19 @@ données (MySQL / CSV / dump SQL), affiche un graphe interactif des scènes dont
 elle dépend, coloré selon leur fraîcheur (vert = à jour, rouge = périmé).
 
 Lancement :  python main.py
+
+Packaging (Windows) :
+    python -m PyInstaller --onefile --windowed .\\main.py ^
+        --icon Dedale.ico --add-data "Dedale.ico;."
 """
 
 from __future__ import annotations
 
+import os
 import sys
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QAction, QColor, QKeySequence
+from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -54,6 +59,42 @@ try:  # pragma: no cover - dépend de l'environnement
 except Exception:  # pragma: no cover
     keyring = None
     _HAS_KEYRING = False
+
+APP_ICON_NAME = "Dedale.ico"
+# Identifiant Windows : sans lui, la barre des tâches affiche l'icône de
+# python.exe au lieu de celle de l'application.
+_WINDOWS_APP_ID = "Dedale.DependencyGraph"
+
+
+def resource_path(name):
+    """Chemin d'une ressource, en développement comme une fois packagée.
+
+    PyInstaller en ``--onefile`` extrait les fichiers passés via
+    ``--add-data`` dans un dossier temporaire exposé par ``sys._MEIPASS``.
+    """
+    base = getattr(sys, "_MEIPASS", None)
+    if base is None:                      # exécution depuis les sources
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, name)
+
+
+def app_icon():
+    """Icône de l'application (QIcon vide si le fichier est absent)."""
+    path = resource_path(APP_ICON_NAME)
+    return QIcon(path) if os.path.isfile(path) else QIcon()
+
+
+def _set_windows_app_id():
+    """Associe l'appli à son propre identifiant (icône de barre des tâches)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            _WINDOWS_APP_ID)
+    except Exception:
+        pass    # purement cosmétique : ne doit jamais empêcher le lancement
+
 
 _KEYRING_SERVICE = "Dedale-DependencyGraph"
 _ORG = "Dedale"
@@ -149,6 +190,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Dedale — Scene Dependency Graph")
+        icon = app_icon()
+        if not icon.isNull():
+            self.setWindowIcon(icon)
         self.resize(1280, 860)
 
         self._settings = QSettings(_ORG, _APP)
@@ -730,8 +774,13 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    _set_windows_app_id()          # avant toute fenêtre
     app = QApplication(sys.argv)
     app.setApplicationName("Dedale — Dependency Graph")
+    icon = app_icon()
+    if not icon.isNull():
+        # Au niveau application : hérité par la fenêtre et les dialogues.
+        app.setWindowIcon(icon)
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

@@ -65,6 +65,24 @@ scène) à **gauche**, le graphe à **droite**.
 2. Saisissez le **nom de la scène**, ex. `qua_077_02000_comp_v019`.
 3. Cliquez **Grapher**.
 
+### Packaging (exécutable Windows)
+
+Placez **`Dedale.ico`** à côté de `main.py`, puis :
+
+```bat
+python -m PyInstaller --onefile --windowed .\main.py --icon Dedale.ico --add-data "Dedale.ico;."
+```
+
+* `--icon` fixe l'icône **du fichier `.exe`** ;
+* `--add-data "Dedale.ico;."` embarque l'icône pour qu'elle serve aussi
+  **d'icône de fenêtre et de barre des tâches** à l'exécution. En `--onefile`,
+  PyInstaller l'extrait dans un dossier temporaire : `resource_path()`
+  (dans `main.py`) la retrouve via `sys._MEIPASS`, et retombe sur le dossier
+  du script quand on lance depuis les sources.
+
+Si `Dedale.ico` est absent, l'application démarre normalement, simplement sans
+icône personnalisée.
+
 Pour un essai immédiat sans base de données, utilisez le jeu d'exemple fourni
 dans [`sample_data/`](sample_data) : onglet **Fichiers CSV** → *Dossier…* →
 sélectionnez `sample_data`, puis graphez `qua_077_02000_comp_v019`.
