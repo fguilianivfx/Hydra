@@ -93,6 +93,8 @@ def _asset_from_mapping(get):
         "av_name": norm_str(get("av_name")),
         "node_name": norm_str(get("node_name")),
         "version": to_int(get("version")),
+        # Colonne facultative : libellé de repli quand node_name est vide.
+        "name": norm_str(get("name")),
     }
 
 
@@ -246,10 +248,8 @@ def load_from_mysql(config):
     assets, scenes, binds = {}, {}, []
     try:
         with _MysqlSession(config) as cursor:
-            cursor.execute(
-                "SELECT id, project, entity_name, task_name, av_name, "
-                "node_name, version FROM assets"
-            )
+            # SELECT * : récupère aussi les colonnes facultatives (name…).
+            cursor.execute("SELECT * FROM assets")
             for row in cursor.fetchall():
                 aid = to_int(row.get("id"))
                 if aid is None:

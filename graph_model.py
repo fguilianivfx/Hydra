@@ -96,11 +96,15 @@ def task_level(task_name):
     return "other"
 
 
-def _active(value):
+def is_active_bind(value):
     """Vrai si un bind est actif (active dans ('1', 1))."""
     if value in (1, "1"):
         return True
     return isinstance(value, str) and value.strip() == "1"
+
+
+# Alias interne historique.
+_active = is_active_bind
 
 
 # ---------------------------------------------------------------------------
@@ -504,7 +508,8 @@ def _fill_scene_meta(node, scenes_by_iv, scenes):
         raw = s.get("name", "")
         if raw and raw not in names:
             names.append(raw)
-        artist = s.get("artist", "") or _extract_artist(raw, node)
+        artist = s.get("artist", "") or extract_artist(
+            raw, node.project, node.entity_name, node.task_name, node.av_name)
         if artist and artist not in artists:
             artists.append(artist)
     node.scene_names = names
@@ -531,7 +536,7 @@ def _display_title(node, prefix):
     return f"{base} ({ver})"
 
 
-def _extract_artist(scene_name, node):
+def extract_artist(scene_name, project, entity_name, task_name, av_name):
     """Devine le nom du graphiste depuis le nom (sale) de la scène.
 
     On retire du nom les segments connus (préfixe, entité, tâche, av, version)
@@ -540,13 +545,13 @@ def _extract_artist(scene_name, node):
     """
     if not scene_name:
         return ""
-    known = {(node.project or "").lower(),
-             (node.task_name or "").lower(),
-             task_display(node.task_name).lower()}
-    for tok in (node.entity_name or "").split("_"):
+    known = {(project or "").lower(),
+             (task_name or "").lower(),
+             task_display(task_name or "").lower()}
+    for tok in (entity_name or "").split("_"):
         known.add(tok.lower())
-    if node.av_name:
-        known.add(node.av_name.lower())
+    if av_name:
+        known.add(av_name.lower())
     known.discard("")
 
     remaining = []

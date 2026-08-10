@@ -33,13 +33,16 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSplitter,
+    QHeaderView,
     QTabWidget,
+    QToolButton,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+import artist_model as am
 import data_source as ds
 import graph_model as gm
 from graph_view import (
@@ -200,6 +203,10 @@ class MainWindow(QMainWindow):
         # Cache des données par signature de source (en mémoire uniquement).
         self._data_cache = {}
         self._link_dialog = None
+        # Outil « Graphist to graph » : dernier rapport et assets masqués
+        # (en mémoire uniquement, rien n'est écrit en base).
+        self._artist_report = None
+        self._muted_assets = set()
 
         self._build_ui()
         self._restore_settings()
@@ -213,16 +220,16 @@ class MainWindow(QMainWindow):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setChildrenCollapsible(False)
-        splitter.setSizes([390, 900])
+        splitter.setSizes([440, 900])
         self.setCentralWidget(splitter)
 
         self._build_toolbar()
         self.statusBar().showMessage("Ready.")
 
     def _build_left_panel(self):
-        """Panneau de gauche : source de données + saisie de la scène."""
+        """Panneau de gauche : source de données + outils."""
         panel = QWidget()
-        panel.setMinimumWidth(340)
+        panel.setMinimumWidth(390)
         lay = QVBoxLayout(panel)
         lay.setContentsMargins(10, 10, 6, 10)
         lay.setSpacing(8)
@@ -235,6 +242,19 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.tabs)
 
         lay.addSpacing(6)
+        self.tool_tabs = QTabWidget()
+        self.tool_tabs.addTab(self._build_scene_tool(), "Scene to graph")
+        self.tool_tabs.addTab(self._build_artist_tool(), "Graphist to graph")
+        lay.addWidget(self.tool_tabs, 1)
+        return panel
+
+    # --- outil 1 : grapher une scène ---------------------------------------
+    def _build_scene_tool(self):
+        tool = QWidget()
+        lay = QVBoxLayout(tool)
+        lay.setContentsMargins(8, 10, 8, 8)
+        lay.setSpacing(8)
+
         lay.addWidget(self._bold_label("Scene to graph"))
         self.scene_edit = QLineEdit()
         self.scene_edit.setPlaceholderText(_DEFAULT_SCENE)
@@ -264,7 +284,93 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.lbl_hidden)
 
         lay.addStretch(1)
-        return panel
+        return tool
+
+    # --- outil 2 : contrôler les scènes d'un graphiste ----------------------
+    def _build_artist_tool(self):
+        tool = QWidget()
+        lay = QVBoxLayout(tool)
+        lay.setContentsMargins(8, 10, 8, 8)
+        lay.setSpacing(6)
+
+        form = QGridLayout()
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(6)
+
+        self.artist_edit = QLineEdit()
+        self.artist_edit.setPlaceholderText("sebastien ginestra")
+        self.artist_edit.setToolTip(
+            "Artist name (scenes.author). Exact match first, otherwise a "
+            "loose match on the surname.")
+        self.artist_edit.returnPressed.connect(self._on_check_scenes)
+        form.addWidget(QLabel("Graphist"), 0, 0)
+        form.addWidget(self.artist_edit, 0, 1)
+
+        self.project_edit = QLineEdit()
+        self.project_edit.setPlaceholderText("qua")
+        self.project_edit.setMaxLength(16)
+        self.project_edit.setToolTip(
+            "Project code (3 letters). Used as a prefix.")
+        self.project_edit.returnPressed.connect(self._on_check_scenes)
+        form.addWidget(QLabel("Project"), 1, 0)
+        form.addWidget(self.project_edit, 1, 1)
+
+        self.tasks_edit = QLineEdit(am.ALL_TASKS)
+        self.tasks_edit.setPlaceholderText("all")
+        self.tasks_edit.setToolTip(
+            "Task types of the imported assets to check: \"all\", or a list "
+            "such as \"fx\" or \"fx, animation\".")
+        self.tasks_edit.returnPressed.connect(self._on_check_scenes)
+        form.addWidget(QLabel("Tasks"), 2, 0)
+        form.addWidget(self.tasks_edit, 2, 1)
+
+        form.setColumnStretch(1, 1)
+        lay.addLayout(form)
+
+        self.btn_check = QPushButton("Check scenes")
+        self.btn_check.clicked.connect(self._on_check_scenes)
+        lay.addWidget(self.btn_check)
+
+        self.chk_only_outdated = QCheckBox("Only scenes to update")
+        self.chk_only_outdated.setToolTip(
+            "Hide scenes whose checked imports are all up to date.")
+        self.chk_only_outdated.toggled.connect(
+            lambda _on: self._populate_artist_tree())
+        lay.addWidget(self.chk_only_outdated)
+
+        self.artist_summary = QLabel("")
+        self.artist_summary.setWordWrap(True)
+        self.artist_summary.setStyleSheet("color:#8a93a0;")
+        lay.addWidget(self.artist_summary)
+
+        self.artist_tree = QTreeWidget()
+        self.artist_tree.setHeaderLabels(["Scene / asset", "Version", ""])
+        self.artist_tree.setRootIsDecorated(True)
+        self.artist_tree.setAlternatingRowColors(True)
+        header = self.artist_tree.header()
+        # Sans cela, la dernière colonne (mute) s'étire et mange la place.
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        self.artist_tree.setColumnWidth(2, 28)
+        self.artist_tree.itemDoubleClicked.connect(self._on_artist_item_activated)
+        lay.addWidget(self.artist_tree, 1)
+
+        muted_row = QHBoxLayout()
+        self.lbl_muted = QLabel("")
+        self.lbl_muted.setStyleSheet("color:#8a93a0;")
+        muted_row.addWidget(self.lbl_muted, 1)
+        self.btn_unmute = QPushButton("Unmute all")
+        self.btn_unmute.setEnabled(False)
+        self.btn_unmute.clicked.connect(self._on_unmute_all)
+        muted_row.addWidget(self.btn_unmute)
+        lay.addLayout(muted_row)
+
+        hint = QLabel("Double-click a scene to graph it.")
+        hint.setStyleSheet("color:#8a93a0;")
+        lay.addWidget(hint)
+        return tool
 
     def _build_right_panel(self):
         """Panneau de droite : la vue du graphe et sa légende."""
@@ -601,6 +707,154 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(message)
         QMessageBox.warning(self, title, message)
 
+    # -------------------------------------------- Graphist to graph (tool) --
+    def _on_check_scenes(self):
+        """Contrôle les scènes du graphiste et remplit la liste de gauche."""
+        artist = self.artist_edit.text().strip()
+        project = self.project_edit.text().strip()
+        if not artist:
+            self._error("Enter a graphist name.", title="Check scenes")
+            return
+        if not project:
+            self._error("Enter a project code (e.g. \"qua\").",
+                        title="Check scenes")
+            return
+
+        try:
+            assets, scenes, binds = self._load_data()
+        except ds.DataSourceError as exc:
+            self._error(str(exc), title="Loading error")
+            return
+        except Exception as exc:
+            self._error(f"Unexpected error while loading: {exc}", title="Error")
+            return
+
+        tasks = am.parse_tasks(self.tasks_edit.text())
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()
+        try:
+            report = am.check_artist_scenes(assets, scenes, binds,
+                                            artist, project, tasks)
+        except Exception as exc:
+            QApplication.restoreOverrideCursor()
+            self._error(f"Error while checking scenes: {exc}", title="Error")
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+
+        self._artist_report = report
+        if not report.artists:
+            known = am.list_authors(scenes, project)
+            extra = (" Known graphists: " + ", ".join(known[:12]) + ("…"
+                     if len(known) > 12 else "")) if known else ""
+            self._error(f"No graphist matching \"{artist}\" on project "
+                        f"\"{project}\".{extra}", title="Check scenes")
+            self.artist_tree.clear()
+            self.artist_summary.setText("")
+            return
+        self._populate_artist_tree()
+        self.statusBar().showMessage(
+            f"{report.total} scene(s) for {', '.join(report.artists)} on "
+            f"\"{project}\": {report.outdated} to update.")
+
+    def _populate_artist_tree(self):
+        """(Re)construit l'arbre des résultats, en respectant les mutes."""
+        report = getattr(self, "_artist_report", None)
+        self.artist_tree.clear()
+        if report is None:
+            return
+
+        only_outdated = self.chk_only_outdated.isChecked()
+        shown = 0
+        for entry in report.entries:
+            rows = [r for r in entry.imports
+                    if (entry.scene_name, r.label) not in self._muted_assets]
+            outdated_rows = [r for r in rows if r.outdated]
+            if only_outdated and not outdated_rows:
+                continue
+            shown += 1
+
+            if entry.checked_count == 0:
+                state = "no import"
+                color = QColor("#8a93a0")
+            elif outdated_rows:
+                state = f"{len(outdated_rows)} to update"
+                color = QColor("#b4392c")
+            else:
+                state = "up to date"
+                color = QColor("#1c7a44")
+
+            top = QTreeWidgetItem(
+                self.artist_tree,
+                [entry.display_name,
+                 f"v{entry.version:03d}" if entry.version is not None else "v?",
+                 ""])
+            top.setToolTip(0, f"{entry.scene_name}\nauthor: {entry.author}\n"
+                              f"{entry.checked_count} import(s) checked — {state}")
+            top.setForeground(1, color)
+            top.setData(0, Qt.UserRole, entry.scene_name)
+            font = top.font(0)
+            font.setBold(bool(outdated_rows))
+            top.setFont(0, font)
+            top.setExpanded(bool(outdated_rows))
+
+            for row in rows:
+                text, stale = _version_state(row.version, row.latest)
+                child = QTreeWidgetItem(top, [row.label, text, ""])
+                child.setForeground(1, QColor("#b4392c") if stale
+                                    else QColor("#1c7a44"))
+                child.setToolTip(0, f"{row.label}\ntask: {row.task_name}")
+                self.artist_tree.setItemWidget(
+                    child, 2, self._make_mute_button(entry.scene_name, row.label))
+
+        tasks = ", ".join(report.tasks) if report.tasks else "all"
+        approx = ("  (loose name match)" if report.match_mode == "approx"
+                  else "")
+        self.artist_summary.setText(
+            f"{', '.join(report.artists)}{approx} · project(s): "
+            f"{', '.join(report.projects) or '—'} · tasks: {tasks}\n"
+            f"{report.total} scene(s): {report.outdated} to update, "
+            f"{report.up_to_date} up to date, {report.no_imports} without "
+            f"matching import." + ("" if shown == report.total
+                                   else f"  ({shown} shown)"))
+        self._refresh_muted_label()
+
+    def _make_mute_button(self, scene_name, label):
+        button = QToolButton()
+        button.setText("×")
+        button.setAutoRaise(True)
+        button.setToolTip("Mute this asset (hide the line)")
+        button.clicked.connect(
+            lambda _checked=False, s=scene_name, a=label: self._mute_asset(s, a))
+        return button
+
+    def _mute_asset(self, scene_name, label):
+        self._muted_assets.add((scene_name, label))
+        self._populate_artist_tree()
+        self.statusBar().showMessage(f"Muted: {label}")
+
+    def _on_unmute_all(self):
+        if not self._muted_assets:
+            return
+        count = len(self._muted_assets)
+        self._muted_assets.clear()
+        self._populate_artist_tree()
+        self.statusBar().showMessage(f"{count} asset(s) unmuted.")
+
+    def _refresh_muted_label(self):
+        count = len(self._muted_assets)
+        self.lbl_muted.setText(f"{count} asset(s) muted." if count else "")
+        self.btn_unmute.setEnabled(bool(count))
+
+    def _on_artist_item_activated(self, item, _column):
+        """Double-clic sur une scène : bascule vers l'outil de graphe."""
+        scene_name = item.data(0, Qt.UserRole)
+        if not scene_name:
+            return
+        self.scene_edit.setText(scene_name)
+        self.tool_tabs.setCurrentIndex(0)
+        self._on_grapher()
+
     # ------------------------------------------------------------- links ---
     def _on_edge_selected(self, info):
         """Affiche le détail du lien cliqué (fenêtre non modale)."""
@@ -728,9 +982,15 @@ class MainWindow(QMainWindow):
         self.csv_binds.setText(s.value("csv/binds", ""))
         self.sql_path.setText(s.value("sql/path", ""))
         self.scene_edit.setText(s.value("scene", ""))
+        self.artist_edit.setText(s.value("artist/name", ""))
+        self.project_edit.setText(s.value("artist/project", ""))
+        self.tasks_edit.setText(s.value("artist/tasks", am.ALL_TASKS))
         idx = int(s.value("source_tab", 0))
         if 0 <= idx < self.tabs.count():
             self.tabs.setCurrentIndex(idx)
+        idx = int(s.value("tool_tab", 0))
+        if 0 <= idx < self.tool_tabs.count():
+            self.tool_tabs.setCurrentIndex(idx)
         # Le mot de passe n'est jamais lu depuis QSettings ; seulement du
         # trousseau système si l'utilisateur l'a explicitement demandé.
         if _HAS_KEYRING and s.value("mysql/remember", "false") == "true":
@@ -760,7 +1020,11 @@ class MainWindow(QMainWindow):
         s.setValue("csv/binds", self.csv_binds.text())
         s.setValue("sql/path", self.sql_path.text())
         s.setValue("scene", self.scene_edit.text())
+        s.setValue("artist/name", self.artist_edit.text())
+        s.setValue("artist/project", self.project_edit.text())
+        s.setValue("artist/tasks", self.tasks_edit.text())
         s.setValue("source_tab", self.tabs.currentIndex())
+        s.setValue("tool_tab", self.tool_tabs.currentIndex())
         s.setValue("mysql/remember",
                    "true" if (_HAS_KEYRING and self.my_remember.isChecked())
                    else "false")

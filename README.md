@@ -90,6 +90,46 @@ sélectionnez `sample_data`, puis graphez `qua_077_02000_comp_v019`.
 
 ---
 
+## Les deux outils
+
+Le panneau de gauche propose deux onglets, qui partagent la même source de
+données.
+
+### « Scene to graph »
+
+L'outil historique : saisir un nom de scène, cliquer **Graph**, explorer le
+graphe de dépendances (voir le reste de ce document).
+
+### « Graphist to graph »
+
+Contrôle du travail d'un graphiste — reprend la sémantique de l'outil en ligne
+de commande `checkGraph` :
+
+| Champ     | Rôle                                                          |
+|-----------|---------------------------------------------------------------|
+| Graphist  | nom du graphiste (colonne `scenes.author`)                     |
+| Project   | code projet, utilisé comme **préfixe** (`qua` retient `qua…`)  |
+| Tasks     | `all` (défaut) ou une liste : `fx`, `fx, animation`…           |
+
+**Check scenes** liste, **par ordre alphabétique**, toutes les scènes du projet
+assignées au graphiste, et vérifie pour chacune — dans sa **dernière version** —
+si ses imports sont à jour. Un import est *obsolète* si son flux d'output
+possède une version publiée plus récente que celle bindée.
+
+* `all` vérifie **tous** les imports ; une liste de tasks ne retient que les
+  assets **de ces types** qui ne sont pas à jour ;
+* le nom du graphiste est cherché à l'identique, puis de façon **approchée sur
+  le nom de famille** (`ginestra` → `sebastien ginestra`) ;
+* chaque ligne d'asset porte un bouton **×** (*mute*) qui masque la ligne ; les
+  mutes survivent à un nouveau *Check scenes* et **Unmute all** les rétablit ;
+* *Only scenes to update* masque les scènes entièrement à jour ;
+* **double-cliquer une scène** bascule sur l'onglet « Scene to graph » et la
+  graphe directement.
+
+Les mutes sont **en mémoire uniquement** : rien n'est écrit dans la base.
+
+---
+
 ## Les trois sources de données
 
 Toutes renvoient les mêmes structures en mémoire (voir `data_source.py`), donc
