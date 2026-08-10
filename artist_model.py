@@ -42,7 +42,7 @@ class ImportRow:
 class SceneEntry:
     """Une scène du graphiste (sa dernière version) et ses imports."""
 
-    __slots__ = ("scene_ids", "display_name", "project", "entity_name",
+    __slots__ = ("scene_ids", "display_name", "project", "code", "entity_name",
                  "task_name", "av_name", "version", "author",
                  "imports", "checked_count")
 
@@ -50,6 +50,9 @@ class SceneEntry:
         self.scene_ids = []
         self.display_name = display_name
         self.project = self.entity_name = self.task_name = self.av_name = ""
+        # Code court du projet tel qu'il apparaît DANS le nom de la scène
+        # (« tem »), qui diffère du nom complet en base (« tempete_26 »).
+        self.code = ""
         self.version = version
         self.author = ""
         self.imports = []        # imports retenus (obsolètes)
@@ -65,9 +68,14 @@ class SceneEntry:
 
     @property
     def scene_name(self):
-        """Nom canonique pour relancer l'outil « Scene to graph »."""
+        """Nom canonique pour relancer l'outil « Scene to graph ».
+
+        On utilise le **code court** du projet (« tem »), tel qu'il figure dans
+        le nom de la scène, et non le nom complet de la colonne ``project``
+        (« tempete_26 ») : c'est le code qui sert à nommer les scènes.
+        """
         task = gm.task_display(self.task_name)
-        name = f"{self.project}_{self.entity_name}_{task}"
+        name = f"{self.code or self.project}_{self.entity_name}_{task}"
         if self.av_name:
             name += f"_{self.av_name}"
         if self.version is not None:
@@ -127,12 +135,27 @@ def scene_author(scene):
                              scene.get("av_name", ""))
 
 
+def _matches_project(scene, prefix):
+    """Le projet saisi désigne-t-il cette scène ?
+
+    On accepte aussi bien le nom complet en base (``tempete_26``) que le code
+    court utilisé dans le nom de la scène (``tem``).
+    """
+    if not prefix:
+        return True
+    if scene.get("project", "").lower().startswith(prefix):
+        return True
+    code = project_code(scene.get("name", ""), scene.get("entity_name", ""),
+                        "").lower()
+    return bool(code) and code.startswith(prefix)
+
+
 def list_authors(scenes, project=""):
     """Graphistes connus (facultativement restreints à un préfixe de projet)."""
     prefix = (project or "").strip().lower()
     found = set()
     for scene in scenes.values():
-        if prefix and not scene.get("project", "").lower().startswith(prefix):
+        if not _matches_project(scene, prefix):
             continue
         author = scene_author(scene)
         if author:
@@ -169,6 +192,24 @@ def _latest_asset_versions(assets):
     return latest
 
 
+def project_code(scene_name, entity_name, project):
+    """Code court du projet, extrait du nom de la scène.
+
+    Le nom d'une scène commence par le code du show (« tem_077_0100_fx »)
+    alors que la colonne ``project`` contient le nom complet
+    (« tempete_26 ») : c'est le code qu'il faut réutiliser pour renommer une
+    scène ou la passer à l'outil « Scene to graph ».
+    """
+    name = (scene_name or "").strip()
+    if name:
+        head = name.split("_", 1)[0]
+        first_entity = (entity_name or "").split("_", 1)[0]
+        # On refuse un « code » qui serait en fait le début de l'entité.
+        if head and head != first_entity:
+            return head
+    return project or ""
+
+
 def _asset_label(asset):
     """Libellé lisible d'un asset importé."""
     node = asset.get("node_name") or asset.get("name") or "?"
@@ -179,13 +220,25 @@ def _asset_label(asset):
     return f"{base} · {node}"
 
 
+def is_shot_scene(task_name):
+    """Vrai si la scène relève d'un plan (et non d'un asset).
+
+    On écarte uniquement les tasks de **niveau asset** (modeling, shading,
+    rigging) : une task inconnue est conservée, pour ne jamais masquer
+    silencieusement du travail.
+    """
+    return gm.task_level(task_name) != "asset"
+
+
 def check_artist_scenes(assets, scenes, binds, artist, project,
-                        tasks=(), only_outdated_imports=True):
+                        tasks=(), only_outdated_imports=True,
+                        shots_only=False):
     """Contrôle les scènes d'un graphiste sur un projet.
 
     ``tasks`` vide = toutes les tasks. Sinon seuls les imports dont la task
     correspond sont retenus. ``only_outdated_imports`` ne conserve que les
-    imports périmés (comportement par défaut de l'outil).
+    imports périmés (comportement par défaut de l'outil). ``shots_only``
+    restreint aux scènes de plans (exclut modeling / shading / rigging).
     """
     report = ArtistReport()
     report.tasks = list(tasks)
@@ -200,7 +253,9 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
     # Dernière version de chaque scène (project, entity, task, av) du projet.
     latest_scene = {}
     for scene_id, scene in scenes.items():
-        if prefix and not scene.get("project", "").lower().startswith(prefix):
+        if prefix and not _matches_project(scene, prefix):
+            continue
+        if shots_only and not is_shot_scene(scene.get("task_name", "")):
             continue
         version = scene.get("version")
         if version is None:
@@ -229,16 +284,17 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
         if not any(a.lower() in wanted_authors for a in authors):
             continue
 
-        project_code, entity, task, av = key
-        projects.add(project_code)
+        project_name, entity, task, av = key
+        projects.add(project_name)
         raw_name = ""
         for sid in scene_ids:
             raw_name = scenes[sid].get("name") or raw_name
-        display = raw_name or f"{project_code}_{entity}_{gm.task_display(task)}"
+        display = raw_name or f"{project_name}_{entity}_{gm.task_display(task)}"
         entry = SceneEntry(display, version)
         entry.scene_ids = sorted(scene_ids)
-        entry.project, entry.entity_name = project_code, entity
+        entry.project, entry.entity_name = project_name, entity
         entry.task_name, entry.av_name = task, av
+        entry.code = project_code(raw_name, entity, project_name)
         entry.author = ", ".join(sorted(authors))
 
         seen = set()

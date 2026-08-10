@@ -331,6 +331,17 @@ class MainWindow(QMainWindow):
         self.btn_check.clicked.connect(self._on_check_scenes)
         lay.addWidget(self.btn_check)
 
+        self.chk_shots_only = QCheckBox("Shots only")
+        self.chk_shots_only.setChecked(True)
+        self.chk_shots_only.setToolTip(
+            "Keep only shot scenes: excludes asset-level tasks (modeling, "
+            "shading, rigging). Unknown tasks are kept.")
+        # Re-lance le contrôle seulement si un résultat existe déjà (sinon le
+        # simple fait de cocher réclamerait un nom de graphiste).
+        self.chk_shots_only.toggled.connect(
+            lambda _on: self._artist_report and self._on_check_scenes())
+        lay.addWidget(self.chk_shots_only)
+
         self.chk_only_outdated = QCheckBox("Only scenes to update")
         self.chk_only_outdated.setToolTip(
             "Hide scenes whose checked imports are all up to date.")
@@ -733,8 +744,9 @@ class MainWindow(QMainWindow):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         QApplication.processEvents()
         try:
-            report = am.check_artist_scenes(assets, scenes, binds,
-                                            artist, project, tasks)
+            report = am.check_artist_scenes(
+                assets, scenes, binds, artist, project, tasks,
+                shots_only=self.chk_shots_only.isChecked())
         except Exception as exc:
             QApplication.restoreOverrideCursor()
             self._error(f"Error while checking scenes: {exc}", title="Error")
@@ -985,6 +997,8 @@ class MainWindow(QMainWindow):
         self.artist_edit.setText(s.value("artist/name", ""))
         self.project_edit.setText(s.value("artist/project", ""))
         self.tasks_edit.setText(s.value("artist/tasks", am.ALL_TASKS))
+        self.chk_shots_only.setChecked(
+            s.value("artist/shots_only", "true") == "true")
         idx = int(s.value("source_tab", 0))
         if 0 <= idx < self.tabs.count():
             self.tabs.setCurrentIndex(idx)
@@ -1023,6 +1037,8 @@ class MainWindow(QMainWindow):
         s.setValue("artist/name", self.artist_edit.text())
         s.setValue("artist/project", self.project_edit.text())
         s.setValue("artist/tasks", self.tasks_edit.text())
+        s.setValue("artist/shots_only",
+                   "true" if self.chk_shots_only.isChecked() else "false")
         s.setValue("source_tab", self.tabs.currentIndex())
         s.setValue("tool_tab", self.tool_tabs.currentIndex())
         s.setValue("mysql/remember",

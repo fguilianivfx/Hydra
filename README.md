@@ -108,8 +108,14 @@ de commande `checkGraph` :
 | Champ     | Rôle                                                          |
 |-----------|---------------------------------------------------------------|
 | Graphist  | nom du graphiste (colonne `scenes.author`)                     |
-| Project   | code projet, utilisé comme **préfixe** (`qua` retient `qua…`)  |
+| Project   | **code court** (`tem`) ou nom complet (`tempete_26`), en préfixe |
 | Tasks     | `all` (défaut) ou une liste : `fx`, `fx, animation`…           |
+
+> La colonne `scenes.project` contient le nom complet du show (`tempete_26`)
+> alors que les **noms de scènes** utilisent son **code court** (`tem`). Les
+> deux sont acceptés dans le champ *Project*, et c'est toujours le **code
+> court** qui sert à reconstruire un nom de scène exploitable par l'outil
+> « Scene to graph ».
 
 **Check scenes** liste, **par ordre alphabétique**, toutes les scènes du projet
 assignées au graphiste, et vérifie pour chacune — dans sa **dernière version** —
@@ -122,6 +128,9 @@ possède une version publiée plus récente que celle bindée.
   le nom de famille** (`ginestra` → `sebastien ginestra`) ;
 * chaque ligne d'asset porte un bouton **×** (*mute*) qui masque la ligne ; les
   mutes survivent à un nouveau *Check scenes* et **Unmute all** les rétablit ;
+* *Shots only* (coché par défaut) ne garde que les scènes de **plans** : les
+  tasks de niveau asset (modeling, shading, rigging) sont écartées, mais une
+  task inconnue est **conservée** pour ne jamais masquer de travail par erreur ;
 * *Only scenes to update* masque les scènes entièrement à jour ;
 * **double-cliquer une scène** bascule sur l'onglet « Scene to graph » et la
   graphe directement.
