@@ -210,13 +210,55 @@ def project_code(scene_name, entity_name, project):
     return project or ""
 
 
-def _asset_label(asset):
-    """Libellé lisible d'un asset importé."""
+def _scene_names_by_identity(scenes):
+    """(project, entity, task, av) -> nom de scène brut (dernière version).
+
+    Sert à nommer la scène **productrice** d'un asset importé exactement comme
+    elle apparaît ailleurs dans la liste (avec le code court du show).
+    """
+    names, versions = {}, {}
+    for scene in scenes.values():
+        name = scene.get("name")
+        if not name:
+            continue
+        key = (scene["project"], scene["entity_name"], scene["task_name"],
+               scene["av_name"])
+        version = scene.get("version") or -1
+        if key not in versions or version > versions[key]:
+            versions[key] = version
+            names[key] = name
+    return names
+
+
+def _codes_by_project(scenes):
+    """project (nom complet) -> code court du show, vu dans les noms de scènes."""
+    codes = {}
+    for scene in scenes.values():
+        project = scene.get("project", "")
+        if project in codes:
+            continue
+        code = project_code(scene.get("name", ""),
+                            scene.get("entity_name", ""), "")
+        if code:
+            codes[project] = code
+    return codes
+
+
+def _asset_label(asset, scene_names=None, codes=None):
+    """Libellé d'un asset importé : « nom de la scène productrice · node »."""
     node = asset.get("node_name") or asset.get("name") or "?"
-    task = gm.task_display(asset["task_name"])
-    base = f"{asset['entity_name']}_{task}"
-    if asset["av_name"]:
-        base += f"_{asset['av_name']}"
+    key = (asset["project"], asset["entity_name"], asset["task_name"],
+           asset["av_name"])
+    base = (scene_names or {}).get(key)
+    if not base:
+        # Aucune scène productrice connue : on reconstruit l'identité, en
+        # gardant le code court du show pour rester homogène avec le reste.
+        code = (codes or {}).get(asset["project"], "")
+        base = f"{asset['entity_name']}_{gm.task_display(asset['task_name'])}"
+        if asset["av_name"]:
+            base += f"_{asset['av_name']}"
+        if code:
+            base = f"{code}_{base}"
     return f"{base} · {node}"
 
 
@@ -275,6 +317,8 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
             scene_assets[scene_id].add(asset_id)
 
     latest_assets = _latest_asset_versions(assets)
+    scene_names = _scene_names_by_identity(scenes)
+    codes = _codes_by_project(scenes)
     projects = set()
 
     for key, (version, scene_ids) in latest_scene.items():
@@ -311,7 +355,8 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
                 stream = (asset["project"], asset["entity_name"],
                           asset["task_name"], asset["av_name"],
                           asset["node_name"])
-                row = ImportRow(_asset_label(asset), asset["task_name"],
+                row = ImportRow(_asset_label(asset, scene_names, codes),
+                                asset["task_name"],
                                 asset["version"],
                                 latest_assets.get(stream, asset["version"]))
                 if row.outdated or not only_outdated_imports:

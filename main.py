@@ -356,7 +356,10 @@ class MainWindow(QMainWindow):
 
         self.artist_tree = QTreeWidget()
         self.artist_tree.setHeaderLabels(["Scene / asset", "Version", ""])
-        self.artist_tree.setRootIsDecorated(True)
+        # Indentation nulle : les lignes d'asset s'alignent à gauche sur les
+        # noms de scènes (les scènes restent en gras pour la hiérarchie).
+        self.artist_tree.setRootIsDecorated(False)
+        self.artist_tree.setIndentation(0)
         self.artist_tree.setAlternatingRowColors(True)
         header = self.artist_tree.header()
         # Sans cela, la dernière colonne (mute) s'étire et mange la place.

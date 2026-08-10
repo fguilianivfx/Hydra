@@ -126,6 +126,9 @@ possède une version publiée plus récente que celle bindée.
   assets **de ces types** qui ne sont pas à jour ;
 * le nom du graphiste est cherché à l'identique, puis de façon **approchée sur
   le nom de famille** (`ginestra` → `sebastien ginestra`) ;
+* chaque ligne d'asset affiche le **nom complet de la scène productrice**
+  (`tem_024c_0035_fx_wave · arbre_cyprin`) et s'aligne à gauche sur les noms de
+  scènes ; les scènes restent en **gras** ;
 * chaque ligne d'asset porte un bouton **×** (*mute*) qui masque la ligne ; les
   mutes survivent à un nouveau *Check scenes* et **Unmute all** les rétablit ;
 * *Shots only* (coché par défaut) ne garde que les scènes de **plans** : les
