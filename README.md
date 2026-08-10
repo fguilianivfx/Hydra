@@ -127,8 +127,8 @@ possède une version publiée plus récente que celle bindée.
 * le nom du graphiste est cherché à l'identique, puis de façon **approchée sur
   le nom de famille** (`ginestra` → `sebastien ginestra`) ;
 * chaque ligne d'asset affiche le **nom complet de la scène productrice**
-  (`tem_024c_0035_fx_wave · arbre_cyprin`) et s'aligne à gauche sur les noms de
-  scènes ; les scènes restent en **gras** ;
+  (`tem_024c_0035_fx_wave · arbre_cyprin`) ; les noms de scènes sont en
+  **gras** et se replient via leur **triangle de dépliage** ;
 * chaque ligne d'asset porte un bouton **×** (*mute*) qui masque la ligne ; les
   mutes survivent à un nouveau *Check scenes* et **Unmute all** les rétablit ;
 * *Shots only* (coché par défaut) ne garde que les scènes de **plans** : les

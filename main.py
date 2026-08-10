@@ -356,10 +356,10 @@ class MainWindow(QMainWindow):
 
         self.artist_tree = QTreeWidget()
         self.artist_tree.setHeaderLabels(["Scene / asset", "Version", ""])
-        # Indentation nulle : les lignes d'asset s'alignent à gauche sur les
-        # noms de scènes (les scènes restent en gras pour la hiérarchie).
-        self.artist_tree.setRootIsDecorated(False)
-        self.artist_tree.setIndentation(0)
+        # Triangles de dépliage : ils réclament de l'indentation, les lignes
+        # d'asset sont donc décalées sous leur scène.
+        self.artist_tree.setRootIsDecorated(True)
+        self.artist_tree.setIndentation(14)
         self.artist_tree.setAlternatingRowColors(True)
         header = self.artist_tree.header()
         # Sans cela, la dernière colonne (mute) s'étire et mange la place.
@@ -808,8 +808,10 @@ class MainWindow(QMainWindow):
                               f"{entry.checked_count} import(s) checked — {state}")
             top.setForeground(1, color)
             top.setData(0, Qt.UserRole, entry.scene_name)
+            # Toutes les scènes en gras : elles se distinguent ainsi des
+            # lignes d'asset, quelle que soit leur fraîcheur.
             font = top.font(0)
-            font.setBold(bool(outdated_rows))
+            font.setBold(True)
             top.setFont(0, font)
             top.setExpanded(bool(outdated_rows))
 
