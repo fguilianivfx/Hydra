@@ -1,22 +1,22 @@
-id,project,entity_name,task_name,av_name,node_name,version,name
-1,qua,077_02000,modeling,,chaise,5,chaise
-2,qua,077_02000,modeling,,table,5,table
-3,qua,077_02000,modeling,,chaise,7,chaise
-4,qua,077_02000,modeling,,table,7,table
-5,qua,077_02000,rigging,,chaise_rig,3,chaise_rig
-6,qua,077_02000,shading,,chaise_shd,2,chaise_shd
-7,qua,077_02000,shading,,table_shd,2,table_shd
-8,qua,077_02000,tracking,,camera_track,6,camera_track
-9,qua,077_02000,layout,,layout_cache,8,layout_cache
-10,qua,077_02000,animation,,chaise_anim,12,chaise_anim
-11,qua,077_02000,animation,,quasimodo,12,quasimodo
-12,qua,077_02000,animation,,quasimodo,14,quasimodo
-13,qua,077_02000,lighting,main,render,4,render
-14,qua,077_02000,lighting,main,deep,4,deep
-15,qua,077_02000,lighting,main,camera_layer_01_camera_abc,4,camera_layer_01_camera_abc
-20,qua,077_03000,animation,,char_anim,9,char_anim
-21,qua,077_03000,animation,,char_anim,11,char_anim
-22,qua,077_03000,fx,,smoke,3,smoke
-23,qua,077_03000,fx,,smoke,5,smoke
-24,qua,077_03000,fx,,debris,5,debris
-25,qua,077_03000,lighting,,render,2,render
+id,project,entity_name,task_name,av_name,node_name,version,name,author,date
+1,qua,077_02000,modeling,,chaise,5,chaise,toto,2026-01-01 10:00
+2,qua,077_02000,modeling,,table,5,table,toto,2026-02-02 11:07
+3,qua,077_02000,modeling,,chaise,7,chaise,toto,2026-03-03 12:14
+4,qua,077_02000,modeling,,table,7,table,toto,2026-04-04 13:21
+5,qua,077_02000,rigging,,chaise_rig,3,chaise_rig,ana,2026-05-05 14:28
+6,qua,077_02000,shading,,chaise_shd,2,chaise_shd,bob,2026-06-06 15:35
+7,qua,077_02000,shading,,table_shd,2,table_shd,bob,2026-07-07 16:42
+8,qua,077_02000,tracking,,camera_track,6,camera_track,lea,2026-08-08 17:49
+9,qua,077_02000,layout,,layout_cache,8,layout_cache,max,2026-09-09 18:56
+10,qua,077_02000,animation,,chaise_anim,12,chaise_anim,jo,2026-01-10 19:03
+11,qua,077_02000,animation,,quasimodo,12,quasimodo,jo,2026-02-11 10:10
+12,qua,077_02000,animation,,quasimodo,14,quasimodo,jo,2026-03-12 11:17
+13,qua,077_02000,lighting,main,render,4,render,kim,2026-04-13 12:24
+14,qua,077_02000,lighting,main,deep,4,deep,kim,2026-05-14 13:31
+15,qua,077_02000,lighting,main,camera_layer_01_camera_abc,4,camera_layer_01_camera_abc,kim,2026-06-15 14:38
+20,qua,077_03000,animation,,char_anim,9,char_anim,jo,2026-07-16 15:45
+21,qua,077_03000,animation,,char_anim,11,char_anim,jo,2026-08-17 16:52
+22,qua,077_03000,fx,,smoke,3,smoke,sebastien ginestra,2026-09-18 17:59
+23,qua,077_03000,fx,,smoke,5,smoke,sebastien ginestra,2026-01-19 18:06
+24,qua,077_03000,fx,,debris,5,debris,sebastien ginestra,2026-02-20 19:13
+25,qua,077_03000,lighting,,render,2,render,kim,2026-03-21 10:20

@@ -93,14 +93,21 @@ def _asset_from_mapping(get):
         "av_name": norm_str(get("av_name")),
         "node_name": norm_str(get("node_name")),
         "version": to_int(get("version")),
-        # Colonne facultative : libellé de repli quand node_name est vide.
+        # Colonnes facultatives : libellé de repli quand node_name est vide,
+        # puis auteur et date de publication (affichés au survol).
         "name": norm_str(get("name")),
+        "artist": _pick(get, _ARTIST_COLUMNS),
+        "date": _pick(get, _DATE_COLUMNS),
     }
 
 
 # Colonnes possibles pour le graphiste ayant publié la scène (facultatif).
 _ARTIST_COLUMNS = ("artist", "user", "username", "created_by", "author",
                    "publisher", "login", "owner")
+# Colonnes possibles pour la date de publication d'un asset (facultatives).
+_DATE_COLUMNS = ("date", "created_at", "creation_date", "created", "ctime",
+                 "export_date", "publish_date", "published_at", "timestamp",
+                 "mtime", "updated_at")
 
 
 def _pick(get, names):

@@ -109,7 +109,11 @@ de commande `checkGraph` :
 |--------------|------------------------------------------------------------|
 | Graphist     | nom du graphiste (colonne `scenes.author`)                  |
 | Project      | **code court** (`tem`) ou nom complet (`tempete_26`), en préfixe |
-| Filter assets tasks | *filtre d'affichage*, sous le bouton : `all` (défaut) ou une liste séparée par espaces/virgules (`fx anim tracking`) |
+| Scenes task  | ne liste que les scènes du graphiste **de ces tasks** : `all` (défaut) ou une liste séparée par espaces/virgules (`fx lighting`) |
+| Filter assets tasks | *filtre d'affichage*, **sous les cases à cocher** : restreint les **assets** listés — `all` ou `fx anim tracking` |
+
+> Ne pas confondre : **Scenes task** choisit *quelles scènes* apparaissent,
+> **Filter assets tasks** restreint *quels assets* sont listés sous chacune.
 
 > La colonne `scenes.project` contient le nom complet du show (`tempete_26`)
 > alors que les **noms de scènes** utilisent son **code court** (`tem`). Les
@@ -132,6 +136,9 @@ possède une version publiée plus récente que celle bindée.
   **gras** et **repliés par défaut** — le triangle déplie le détail ;
 * une fois dépliée, une scène liste **tous** ses imports : les périmés en
   **rouge** (`v009 → v011`) et ceux **à jour en vert** (`v011`) ;
+* **survoler une ligne d'asset** affiche sa task, sa version, sa **date
+  d'export** et le **graphiste qui l'a publié** (colonnes facultatives de la
+  table `assets` : `date`/`created_at`… et `author`/`user`…) ;
 * chaque ligne d'asset porte un bouton **×** (*mute*) qui masque la ligne ; les
   mutes survivent à un nouveau *Check scenes* et **Unmute all** les rétablit ;
 * *Shots only* (coché par défaut) ne garde que les scènes de **plans** : les

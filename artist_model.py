@@ -33,14 +33,18 @@ class ImportRow:
     la scène. Un asset seulement disponible ne rend jamais la scène obsolète.
     """
 
-    __slots__ = ("label", "task_name", "version", "latest", "outdated", "kind")
+    __slots__ = ("label", "task_name", "version", "latest", "outdated", "kind",
+                 "date", "author")
 
-    def __init__(self, label, task_name, version, latest, kind="import"):
+    def __init__(self, label, task_name, version, latest, kind="import",
+                 date="", author=""):
         self.label = label
         self.task_name = task_name
         self.version = version
         self.latest = latest
         self.kind = kind
+        self.date = date        # date de publication de l'asset (si connue)
+        self.author = author    # graphiste ayant publié l'asset (si connu)
         self.outdated = (kind == "import" and version is not None
                          and latest is not None and version < latest)
 
@@ -307,13 +311,15 @@ def is_shot_scene(task_name):
 
 def check_artist_scenes(assets, scenes, binds, artist, project,
                         tasks=(), only_outdated_imports=True,
-                        shots_only=False):
+                        shots_only=False, scene_tasks=()):
     """Contrôle les scènes d'un graphiste sur un projet.
 
     ``tasks`` vide = toutes les tasks. Sinon seuls les imports dont la task
     correspond sont retenus. ``only_outdated_imports`` ne conserve que les
     imports périmés (comportement par défaut de l'outil). ``shots_only``
     restreint aux scènes de plans (exclut modeling / shading / rigging).
+    ``scene_tasks`` ne retient que les scènes de ces tasks (vide = toutes) ;
+    à ne pas confondre avec ``tasks``, qui porte sur les assets importés.
     """
     report = ArtistReport()
     report.tasks = list(tasks)
@@ -324,6 +330,8 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
         return report
     wanted_authors = {a.lower() for a in report.artists}
     wanted_tasks = {gm.canon_task(t) for t in tasks} if tasks else None
+    wanted_scene_tasks = ({gm.canon_task(t) for t in scene_tasks}
+                          if scene_tasks else None)
 
     # Dernière version de chaque scène (project, entity, task, av) du projet.
     latest_scene = {}
@@ -331,6 +339,10 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
         if prefix and not _matches_project(scene, prefix):
             continue
         if shots_only and not is_shot_scene(scene.get("task_name", "")):
+            continue
+        if (wanted_scene_tasks is not None
+                and gm.canon_task(scene.get("task_name", ""))
+                not in wanted_scene_tasks):
             continue
         version = scene.get("version")
         if version is None:
@@ -396,7 +408,9 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
                 row = ImportRow(_asset_label(asset, scene_names, codes),
                                 asset["task_name"],
                                 asset["version"],
-                                latest_assets.get(stream, asset["version"]))
+                                latest_assets.get(stream, asset["version"]),
+                                date=asset.get("date", ""),
+                                author=asset.get("artist", ""))
                 if row.outdated or not only_outdated_imports:
                     entry.imports.append(row)
 
@@ -414,7 +428,8 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
                 continue
             entry.available.append(ImportRow(
                 _asset_label(asset, scene_names, codes), asset["task_name"],
-                latest_version, latest_version, kind="available"))
+                latest_version, latest_version, kind="available",
+                date=asset.get("date", ""), author=asset.get("artist", "")))
 
         entry.imports.sort(key=lambda r: r.label)
         entry.available.sort(key=lambda r: r.label)

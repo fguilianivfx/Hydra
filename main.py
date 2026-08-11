@@ -319,27 +319,23 @@ class MainWindow(QMainWindow):
         form.addWidget(QLabel("Project"), 1, 0)
         form.addWidget(self.project_edit, 1, 1)
 
+        # Filtre sur la task DES SCÈNES du graphiste (≠ tasks des assets).
+        self.scene_tasks_edit = QLineEdit(am.ALL_TASKS)
+        self.scene_tasks_edit.setPlaceholderText("all")
+        self.scene_tasks_edit.setToolTip(
+            "List only the graphist's scenes of these tasks: \"all\", or one "
+            "or more tasks separated by spaces or commas (e.g. \"fx "
+            "lighting\").")
+        self.scene_tasks_edit.returnPressed.connect(self._on_check_scenes)
+        form.addWidget(QLabel("Scenes task"), 2, 0)
+        form.addWidget(self.scene_tasks_edit, 2, 1)
+
         form.setColumnStretch(1, 1)
         lay.addLayout(form)
 
         self.btn_check = QPushButton("Check scenes")
         self.btn_check.clicked.connect(self._on_check_scenes)
         lay.addWidget(self.btn_check)
-
-        # Filtre d'affichage : le contrôle porte toujours sur TOUTES les tasks
-        # d'assets, ce champ ne fait que restreindre ce qui est listé — il
-        # s'applique donc immédiatement, sans relancer le contrôle.
-        filter_row = QHBoxLayout()
-        filter_row.addWidget(QLabel("Filter assets tasks"))
-        self.tasks_edit = QLineEdit(am.ALL_TASKS)
-        self.tasks_edit.setPlaceholderText("all")
-        self.tasks_edit.setToolTip(
-            "Filter the listed assets by task: \"all\", or one or more tasks "
-            "separated by spaces or commas (e.g. \"fx anim tracking\").")
-        self.tasks_edit.textChanged.connect(
-            lambda _text: self._populate_artist_tree())
-        filter_row.addWidget(self.tasks_edit, 1)
-        lay.addLayout(filter_row)
 
         self.chk_shots_only = QCheckBox("Shots only")
         self.chk_shots_only.setChecked(True)
@@ -366,6 +362,21 @@ class MainWindow(QMainWindow):
         self.chk_show_available.toggled.connect(
             lambda _on: self._populate_artist_tree())
         lay.addWidget(self.chk_show_available)
+
+        # Filtre d'affichage des ASSETS listés : le contrôle porte toujours sur
+        # toutes leurs tasks, ce champ ne fait que restreindre l'affichage — il
+        # s'applique donc immédiatement, sans relancer le contrôle.
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Filter assets tasks"))
+        self.tasks_edit = QLineEdit(am.ALL_TASKS)
+        self.tasks_edit.setPlaceholderText("all")
+        self.tasks_edit.setToolTip(
+            "Filter the listed assets by task: \"all\", or one or more tasks "
+            "separated by spaces or commas (e.g. \"fx anim tracking\").")
+        self.tasks_edit.textChanged.connect(
+            lambda _text: self._populate_artist_tree())
+        filter_row.addWidget(self.tasks_edit, 1)
+        lay.addLayout(filter_row)
 
         self.artist_summary = QLabel("")
         self.artist_summary.setWordWrap(True)
@@ -762,7 +773,8 @@ class MainWindow(QMainWindow):
             report = am.check_artist_scenes(
                 assets, scenes, binds, artist, project, tasks=(),
                 shots_only=self.chk_shots_only.isChecked(),
-                only_outdated_imports=False)
+                only_outdated_imports=False,
+                scene_tasks=am.parse_tasks(self.scene_tasks_edit.text()))
         except Exception as exc:
             QApplication.restoreOverrideCursor()
             self._error(f"Error while checking scenes: {exc}", title="Error")
@@ -856,7 +868,9 @@ class MainWindow(QMainWindow):
                 child = QTreeWidgetItem(top, [row.label, text, ""])
                 child.setForeground(1, QColor("#b4392c") if stale
                                     else QColor("#1c7a44"))
-                child.setToolTip(0, f"{row.label}\ntask: {row.task_name}")
+                tip = self._asset_tooltip(row)
+                child.setToolTip(0, tip)
+                child.setToolTip(1, tip)
                 self.artist_tree.setItemWidget(
                     child, 2, self._make_mute_button(entry.scene_name, row.label))
 
@@ -867,10 +881,11 @@ class MainWindow(QMainWindow):
                           if row.version is not None else "v?", ""])
                 child.setForeground(0, _COL_AVAILABLE)
                 child.setForeground(1, _COL_AVAILABLE)
-                child.setToolTip(
-                    0, f"{row.label}\ntask: {row.task_name}\n"
-                       "Published on the shot but not imported by this scene "
-                       "— does not make it outdated.")
+                tip = self._asset_tooltip(
+                    row, "Published on the shot but not imported by this "
+                         "scene — does not make it outdated.")
+                child.setToolTip(0, tip)
+                child.setToolTip(1, tip)
                 self.artist_tree.setItemWidget(
                     child, 2, self._make_mute_button(entry.scene_name, row.label))
 
@@ -885,6 +900,21 @@ class MainWindow(QMainWindow):
             f"matching import." + ("" if shown == report.total
                                    else f"  ({shown} shown)"))
         self._refresh_muted_label()
+
+    @staticmethod
+    def _asset_tooltip(row, extra=""):
+        """Info-bulle d'une ligne d'asset : version, date d'export, graphiste."""
+        lines = [row.label, f"task: {row.task_name}"]
+        if row.outdated:
+            lines.append(f"version: {_version_state(row.version, row.latest)[0]}"
+                         "  (outdated)")
+        else:
+            lines.append(f"version: {_version_state(row.version, row.latest)[0]}")
+        lines.append(f"exported: {row.date or 'unknown date'}")
+        lines.append(f"published by: {row.author or 'unknown'}")
+        if extra:
+            lines.append(extra)
+        return "\n".join(lines)
 
     def _make_mute_button(self, scene_name, label):
         button = QToolButton()
@@ -1052,6 +1082,8 @@ class MainWindow(QMainWindow):
         self.artist_edit.setText(s.value("artist/name", ""))
         self.project_edit.setText(s.value("artist/project", ""))
         self.tasks_edit.setText(s.value("artist/tasks", am.ALL_TASKS))
+        self.scene_tasks_edit.setText(
+            s.value("artist/scene_tasks", am.ALL_TASKS))
         self.chk_shots_only.setChecked(
             s.value("artist/shots_only", "true") == "true")
         self.chk_show_available.setChecked(
@@ -1094,6 +1126,7 @@ class MainWindow(QMainWindow):
         s.setValue("artist/name", self.artist_edit.text())
         s.setValue("artist/project", self.project_edit.text())
         s.setValue("artist/tasks", self.tasks_edit.text())
+        s.setValue("artist/scene_tasks", self.scene_tasks_edit.text())
         s.setValue("artist/shots_only",
                    "true" if self.chk_shots_only.isChecked() else "false")
         s.setValue("artist/show_available",
