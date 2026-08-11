@@ -137,7 +137,7 @@ DEFAULT_DATABASE = "dd_assets_tracking"
 # Identifiants par défaut : l'UI ne les demande plus. Chacun reste surchargeable
 # par variable d'environnement, pour éviter de modifier le code.
 _DEFAULT_MYSQL_USER = "f.guiliani"
-_DEFAULT_MYSQL_PASSWORD = "Password"      # à remplacer / passer par $MYSQL_PASS
+_DEFAULT_MYSQL_PASSWORD = "password_fab"  # à remplacer / passer par $MYSQL_PASS
 
 
 def mysql_host():
