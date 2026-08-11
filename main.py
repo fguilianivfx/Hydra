@@ -757,9 +757,12 @@ class MainWindow(QMainWindow):
         try:
             # Le contrôle porte sur TOUTES les tasks d'assets ; le champ
             # « Filter assets tasks » ne filtre que l'affichage.
+            # only_outdated_imports=False : on garde aussi les imports à jour,
+            # affichés en vert quand on déplie une scène.
             report = am.check_artist_scenes(
                 assets, scenes, binds, artist, project, tasks=(),
-                shots_only=self.chk_shots_only.isChecked())
+                shots_only=self.chk_shots_only.isChecked(),
+                only_outdated_imports=False)
         except Exception as exc:
             QApplication.restoreOverrideCursor()
             self._error(f"Error while checking scenes: {exc}", title="Error")

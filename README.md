@@ -129,7 +129,9 @@ possède une version publiée plus récente que celle bindée.
   le nom de famille** (`ginestra` → `sebastien ginestra`) ;
 * chaque ligne d'asset affiche le **nom complet de la scène productrice**
   (`tem_024c_0035_fx_wave · arbre_cyprin`) ; les noms de scènes sont en
-  **gras** et se replient via leur **triangle de dépliage** ;
+  **gras** et **repliés par défaut** — le triangle déplie le détail ;
+* une fois dépliée, une scène liste **tous** ses imports : les périmés en
+  **rouge** (`v009 → v011`) et ceux **à jour en vert** (`v011`) ;
 * chaque ligne d'asset porte un bouton **×** (*mute*) qui masque la ligne ; les
   mutes survivent à un nouveau *Check scenes* et **Unmute all** les rétablit ;
 * *Shots only* (coché par défaut) ne garde que les scènes de **plans** : les
