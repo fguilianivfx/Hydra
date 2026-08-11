@@ -445,10 +445,18 @@ class MainWindow(QMainWindow):
         self.my_status.setWordWrap(True)
         grid.addWidget(self.my_status, 0, 2, 1, 2)
 
-        hint = QLabel(f"Host: {ds.mysql_host()} (${{MYSQL_HOST}}) · "
-                      f"Database: {ds.mysql_database()} (${{MYSQL_DATABASE}})\n"
-                      f"User: {ds.mysql_user()} (${{MYSQL_USER}}) · "
-                      f"Password: ${{MYSQL_PASS}} or set in data_source.py")
+        # On indique l'ORIGINE de chaque réglage : c'est le seul moyen de voir
+        # d'un coup d'œil si local_config.py est bien pris en compte.
+        origin = ds.settings_origin()
+        local_state = ("local_config.py loaded"
+                       if ds.has_local_config()
+                       else "no local_config.py found — using defaults")
+        hint = QLabel(
+            f"Host: {ds.mysql_host()}  [{origin['host']}]\n"
+            f"Database: {ds.mysql_database()}  [{origin['database']}]\n"
+            f"User: {ds.mysql_user()}  [{origin['user']}]\n"
+            f"Password: {'*' * 8}  [{origin['password']}]\n"
+            f"{local_state}")
         hint.setStyleSheet("color:#8a93a0;")
         hint.setWordWrap(True)
         grid.addWidget(hint, 1, 0, 1, 4)

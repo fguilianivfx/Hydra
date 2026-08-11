@@ -148,21 +148,42 @@ except ImportError:
     _local = None
 
 
-def _setting(env_var, local_name, default):
-    """Environnement > local_config.py > valeur par défaut."""
+def _resolve(env_var, local_name, default):
+    """Renvoie (valeur, origine) : environnement > local_config.py > défaut."""
     value = os.environ.get(env_var)
     if value:
-        return value
+        return value, f"${env_var}"
     if _local is not None:
         value = getattr(_local, local_name, None)
         if value:
-            return value
-    return default
+            return value, "local_config.py"
+    return default, "default"
+
+
+def _setting(env_var, local_name, default):
+    return _resolve(env_var, local_name, default)[0]
 
 
 def has_local_config():
     """Vrai si un fichier local_config.py a été chargé."""
     return _local is not None
+
+
+def local_config_path():
+    """Chemin du local_config.py chargé (ou None)."""
+    return getattr(_local, "__file__", None) if _local is not None else None
+
+
+def settings_origin():
+    """Origine de chaque paramètre de connexion, pour l'affichage/diagnostic."""
+    return {
+        "host": _resolve("MYSQL_HOST", "MYSQL_HOST", _DEFAULT_MYSQL_HOST)[1],
+        "database": _resolve("MYSQL_DATABASE", "MYSQL_DATABASE",
+                             DEFAULT_DATABASE)[1],
+        "user": _resolve("MYSQL_USER", "MYSQL_USER", _DEFAULT_MYSQL_USER)[1],
+        "password": _resolve("MYSQL_PASS", "MYSQL_PASSWORD",
+                             _DEFAULT_MYSQL_PASSWORD)[1],
+    }
 
 
 def mysql_host():
@@ -215,6 +236,19 @@ def _available_driver():
 
 def _connect_error_message(exc):
     """Message d'erreur de connexion, avec l'hôte, le connecteur et un indice."""
+    text = str(exc)
+    # Identifiants refusés : le serveur a répondu, seul le compte est en cause.
+    if "access denied" in text.lower():
+        where = ("local_config.py" if settings_origin()["password"]
+                 == "local_config.py" else settings_origin()["password"])
+        return (
+            f"MySQL refused the credentials for user '{mysql_user()}' on "
+            f"'{mysql_host()}'. The server is reachable — only the login "
+            f"failed.\nPassword source: {where}. "
+            f"local_config.py {'loaded' if has_local_config() else 'NOT found'}"
+            f".\nMySQL accounts are per client host: the account may exist for "
+            f"the server itself (as phpMyAdmin uses it) but not for your "
+            f"workstation's IP.\nDetails: {exc}")
     driver = _available_driver()
     if driver == "mariadb":
         extra = ""
