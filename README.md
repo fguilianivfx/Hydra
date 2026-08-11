@@ -123,7 +123,7 @@ si ses imports sont à jour. Un import est *obsolète* si son flux d'output
 possède une version publiée plus récente que celle bindée.
 
 * le contrôle porte **toujours sur toutes les tasks d'assets** ; le champ
-  *Assets tasks* ne fait que **filtrer l'affichage** — il s'applique donc
+  *Filter assets tasks* ne fait que **filtrer l'affichage** — il s'applique donc
   instantanément, sans relancer le contrôle ;
 * le nom du graphiste est cherché à l'identique, puis de façon **approchée sur
   le nom de famille** (`ginestra` → `sebastien ginestra`) ;

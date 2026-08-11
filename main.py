@@ -744,7 +744,7 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
         try:
             # Le contrôle porte sur TOUTES les tasks d'assets ; le champ
-            # « Assets tasks » ne filtre que l'affichage.
+            # « Filter assets tasks » ne filtre que l'affichage.
             report = am.check_artist_scenes(
                 assets, scenes, binds, artist, project, tasks=(),
                 shots_only=self.chk_shots_only.isChecked())
