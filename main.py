@@ -108,6 +108,10 @@ _LEGACY_ORG = "Hydra"
 _DEFAULT_SCENE = "qua_077_02000_comp_v019"
 
 
+# Bleu des assets publiés sur le plan mais non importés (purement informatif).
+_COL_AVAILABLE = QColor("#1a5fb4")
+
+
 def _version_state(current, latest):
     """« (vXXX) » si à jour, « (vXXX → vYYY) » si une version plus récente existe."""
     cur = f"v{current:03d}" if current is not None else "v?"
@@ -354,6 +358,14 @@ class MainWindow(QMainWindow):
         self.chk_only_outdated.toggled.connect(
             lambda _on: self._populate_artist_tree())
         lay.addWidget(self.chk_only_outdated)
+
+        self.chk_show_available = QCheckBox("Show assets not imported")
+        self.chk_show_available.setToolTip(
+            "Also list, in blue, the assets published on the shot that the "
+            "scene does not import. They never make a scene outdated.")
+        self.chk_show_available.toggled.connect(
+            lambda _on: self._populate_artist_tree())
+        lay.addWidget(self.chk_show_available)
 
         self.artist_summary = QLabel("")
         self.artist_summary.setWordWrap(True)
@@ -788,6 +800,16 @@ class MainWindow(QMainWindow):
                     and (wanted is None
                          or gm.canon_task(r.task_name) in wanted)]
             outdated_rows = [r for r in rows if r.outdated]
+            # Assets publiés sur le plan mais non importés : informatifs, ils
+            # ne rendent jamais la scène obsolète (donc pas de « continue »
+            # basé sur eux).
+            available_rows = []
+            if self.chk_show_available.isChecked():
+                available_rows = [
+                    r for r in entry.available
+                    if (entry.scene_name, r.label) not in self._muted_assets
+                    and (wanted is None
+                         or gm.canon_task(r.task_name) in wanted)]
             if only_outdated and not outdated_rows:
                 continue
             shown += 1
@@ -805,6 +827,8 @@ class MainWindow(QMainWindow):
             else:
                 state = "up to date"
                 color = QColor("#1c7a44")
+            if available_rows:
+                state += f" · {len(available_rows)} not imported"
 
             top = QTreeWidgetItem(
                 self.artist_tree,
@@ -820,7 +844,7 @@ class MainWindow(QMainWindow):
             font = top.font(0)
             font.setBold(True)
             top.setFont(0, font)
-            top.setExpanded(bool(outdated_rows))
+            top.setExpanded(bool(outdated_rows) or bool(available_rows))
 
             for row in rows:
                 text, stale = _version_state(row.version, row.latest)
@@ -828,6 +852,20 @@ class MainWindow(QMainWindow):
                 child.setForeground(1, QColor("#b4392c") if stale
                                     else QColor("#1c7a44"))
                 child.setToolTip(0, f"{row.label}\ntask: {row.task_name}")
+                self.artist_tree.setItemWidget(
+                    child, 2, self._make_mute_button(entry.scene_name, row.label))
+
+            # Assets disponibles mais non importés : en bleu.
+            for row in available_rows:
+                child = QTreeWidgetItem(
+                    top, [row.label, f"v{row.version:03d}"
+                          if row.version is not None else "v?", ""])
+                child.setForeground(0, _COL_AVAILABLE)
+                child.setForeground(1, _COL_AVAILABLE)
+                child.setToolTip(
+                    0, f"{row.label}\ntask: {row.task_name}\n"
+                       "Published on the shot but not imported by this scene "
+                       "— does not make it outdated.")
                 self.artist_tree.setItemWidget(
                     child, 2, self._make_mute_button(entry.scene_name, row.label))
 
@@ -1011,6 +1049,8 @@ class MainWindow(QMainWindow):
         self.tasks_edit.setText(s.value("artist/tasks", am.ALL_TASKS))
         self.chk_shots_only.setChecked(
             s.value("artist/shots_only", "true") == "true")
+        self.chk_show_available.setChecked(
+            s.value("artist/show_available", "false") == "true")
         idx = int(s.value("source_tab", 0))
         if 0 <= idx < self.tabs.count():
             self.tabs.setCurrentIndex(idx)
@@ -1051,6 +1091,8 @@ class MainWindow(QMainWindow):
         s.setValue("artist/tasks", self.tasks_edit.text())
         s.setValue("artist/shots_only",
                    "true" if self.chk_shots_only.isChecked() else "false")
+        s.setValue("artist/show_available",
+                   "true" if self.chk_show_available.isChecked() else "false")
         s.setValue("source_tab", self.tabs.currentIndex())
         s.setValue("tool_tab", self.tool_tabs.currentIndex())
         s.setValue("mysql/remember",

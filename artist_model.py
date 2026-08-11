@@ -26,17 +26,28 @@ ALL_TASKS = "all"
 
 
 class ImportRow:
-    """Un asset importé par une scène, avec sa fraîcheur."""
+    """Un asset lié à une scène.
 
-    __slots__ = ("label", "task_name", "version", "latest", "outdated")
+    ``kind`` vaut ``"import"`` pour un asset réellement importé, ou
+    ``"available"`` pour un asset publié sur le plan mais **pas** importé par
+    la scène. Un asset seulement disponible ne rend jamais la scène obsolète.
+    """
 
-    def __init__(self, label, task_name, version, latest):
+    __slots__ = ("label", "task_name", "version", "latest", "outdated", "kind")
+
+    def __init__(self, label, task_name, version, latest, kind="import"):
         self.label = label
         self.task_name = task_name
         self.version = version
         self.latest = latest
-        self.outdated = (version is not None and latest is not None
-                         and version < latest)
+        self.kind = kind
+        self.outdated = (kind == "import" and version is not None
+                         and latest is not None and version < latest)
+
+    @property
+    def available(self):
+        """Asset disponible sur le plan mais non importé."""
+        return self.kind == "available"
 
 
 class SceneEntry:
@@ -44,7 +55,7 @@ class SceneEntry:
 
     __slots__ = ("scene_ids", "display_name", "project", "code", "entity_name",
                  "task_name", "av_name", "version", "author",
-                 "imports", "checked_count")
+                 "imports", "available", "checked_count")
 
     def __init__(self, display_name, version):
         self.scene_ids = []
@@ -56,6 +67,7 @@ class SceneEntry:
         self.version = version
         self.author = ""
         self.imports = []        # imports retenus (obsolètes)
+        self.available = []      # publiés sur le plan mais non importés
         self.checked_count = 0   # nombre d'imports examinés
 
     @property
@@ -230,6 +242,27 @@ def _scene_names_by_identity(scenes):
     return names
 
 
+def _streams_by_entity(assets):
+    """(project, entity) -> {stream: (version max, asset représentatif)}.
+
+    Un « stream » est l'identité d'un output publié :
+    ``(project, entity, task, av, node_name)``. Sert à lister ce qui est
+    disponible sur un plan.
+    """
+    index = defaultdict(dict)
+    for asset in assets.values():
+        version = asset["version"]
+        if version is None:
+            continue
+        stream = (asset["project"], asset["entity_name"], asset["task_name"],
+                  asset["av_name"], asset["node_name"])
+        bucket = index[(asset["project"], asset["entity_name"])]
+        current = bucket.get(stream)
+        if current is None or version > current[0]:
+            bucket[stream] = (version, asset)
+    return index
+
+
 def _codes_by_project(scenes):
     """project (nom complet) -> code court du show, vu dans les noms de scènes."""
     codes = {}
@@ -319,6 +352,7 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
     latest_assets = _latest_asset_versions(assets)
     scene_names = _scene_names_by_identity(scenes)
     codes = _codes_by_project(scenes)
+    streams_by_entity = _streams_by_entity(assets)
     projects = set()
 
     for key, (version, scene_ids) in latest_scene.items():
@@ -342,19 +376,23 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
         entry.author = ", ".join(sorted(authors))
 
         seen = set()
+        imported_streams = set()
         for sid in scene_ids:
             for asset_id in scene_assets.get(sid, ()):
                 asset = assets.get(asset_id)
                 if asset is None or asset_id in seen:
                     continue
                 seen.add(asset_id)
+                stream = (asset["project"], asset["entity_name"],
+                          asset["task_name"], asset["av_name"],
+                          asset["node_name"])
+                # Le stream compte comme importé quel que soit le filtre de
+                # tasks, sinon il ressortirait comme « disponible ».
+                imported_streams.add(stream)
                 if (wanted_tasks is not None
                         and gm.canon_task(asset["task_name"]) not in wanted_tasks):
                     continue
                 entry.checked_count += 1
-                stream = (asset["project"], asset["entity_name"],
-                          asset["task_name"], asset["av_name"],
-                          asset["node_name"])
                 row = ImportRow(_asset_label(asset, scene_names, codes),
                                 asset["task_name"],
                                 asset["version"],
@@ -362,7 +400,24 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
                 if row.outdated or not only_outdated_imports:
                     entry.imports.append(row)
 
+        # Assets publiés sur le même plan mais NON importés par la scène.
+        # Purement informatif : ils ne rendent pas la scène obsolète.
+        for stream, (latest_version, asset) in \
+                streams_by_entity.get((project_name, entity), {}).items():
+            if stream in imported_streams:
+                continue
+            # On ignore ce que la scène produit elle-même.
+            if stream[2] == task and stream[3] == av:
+                continue
+            if (wanted_tasks is not None
+                    and gm.canon_task(asset["task_name"]) not in wanted_tasks):
+                continue
+            entry.available.append(ImportRow(
+                _asset_label(asset, scene_names, codes), asset["task_name"],
+                latest_version, latest_version, kind="available"))
+
         entry.imports.sort(key=lambda r: r.label)
+        entry.available.sort(key=lambda r: r.label)
         report.entries.append(entry)
 
         if entry.checked_count == 0:

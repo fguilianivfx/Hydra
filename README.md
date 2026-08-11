@@ -136,6 +136,12 @@ possède une version publiée plus récente que celle bindée.
   tasks de niveau asset (modeling, shading, rigging) sont écartées, mais une
   task inconnue est **conservée** pour ne jamais masquer de travail par erreur ;
 * *Only scenes to update* masque les scènes entièrement à jour ;
+* *Show assets not imported* liste en plus, **en bleu**, les assets publiés sur
+  le **plan** que la scène **n'importe pas** (dernière version disponible). Ils
+  sont purement informatifs : ils **ne rendent jamais une scène obsolète**, ne
+  sont pas comptés dans « to update », et n'entraînent pas l'affichage d'une
+  scène sous *Only scenes to update*. Le filtre *Filter assets tasks* et le
+  bouton **×** s'y appliquent aussi ;
 * **double-cliquer une scène** bascule sur l'onglet « Scene to graph » et la
   graphe directement.
 
