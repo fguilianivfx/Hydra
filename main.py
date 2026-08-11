@@ -315,21 +315,27 @@ class MainWindow(QMainWindow):
         form.addWidget(QLabel("Project"), 1, 0)
         form.addWidget(self.project_edit, 1, 1)
 
-        self.tasks_edit = QLineEdit(am.ALL_TASKS)
-        self.tasks_edit.setPlaceholderText("all")
-        self.tasks_edit.setToolTip(
-            "Task types of the imported assets to check: \"all\", or a list "
-            "such as \"fx\" or \"fx, animation\".")
-        self.tasks_edit.returnPressed.connect(self._on_check_scenes)
-        form.addWidget(QLabel("Tasks"), 2, 0)
-        form.addWidget(self.tasks_edit, 2, 1)
-
         form.setColumnStretch(1, 1)
         lay.addLayout(form)
 
         self.btn_check = QPushButton("Check scenes")
         self.btn_check.clicked.connect(self._on_check_scenes)
         lay.addWidget(self.btn_check)
+
+        # Filtre d'affichage : le contrôle porte toujours sur TOUTES les tasks
+        # d'assets, ce champ ne fait que restreindre ce qui est listé — il
+        # s'applique donc immédiatement, sans relancer le contrôle.
+        filter_row = QHBoxLayout()
+        filter_row.addWidget(QLabel("Assets tasks"))
+        self.tasks_edit = QLineEdit(am.ALL_TASKS)
+        self.tasks_edit.setPlaceholderText("all")
+        self.tasks_edit.setToolTip(
+            "Filter the listed assets by task: \"all\", or one or more tasks "
+            "separated by spaces or commas (e.g. \"fx anim tracking\").")
+        self.tasks_edit.textChanged.connect(
+            lambda _text: self._populate_artist_tree())
+        filter_row.addWidget(self.tasks_edit, 1)
+        lay.addLayout(filter_row)
 
         self.chk_shots_only = QCheckBox("Shots only")
         self.chk_shots_only.setChecked(True)
@@ -415,55 +421,37 @@ class MainWindow(QMainWindow):
         grid.setHorizontalSpacing(10)
         grid.setVerticalSpacing(6)
 
-        # Ni l'hôte ni la base ne sont demandés : ils viennent de
-        # $MYSQL_HOST / $MYSQL_DATABASE (voir data_source).
+        # Rien n'est demandé ici : hôte, base, utilisateur et mot de passe
+        # viennent de data_source (valeurs par défaut, surchargeables par
+        # variables d'environnement). Les champs restent créés — mais masqués —
+        # pour garder l'option « Remember » disponible si l'on repasse un jour
+        # à une saisie interactive.
         self.my_user = QLineEdit()
         self.my_pass = QLineEdit()
         self.my_pass.setEchoMode(QLineEdit.Password)
-        self.my_pass.setPlaceholderText("(kept in memory only)")
-
-        show = QCheckBox("Show")
-        show.toggled.connect(
-            lambda on: self.my_pass.setEchoMode(
-                QLineEdit.Normal if on else QLineEdit.Password))
-
-        grid.addWidget(QLabel("User"), 0, 0)
-        grid.addWidget(self.my_user, 0, 1, 1, 3)
-
-        grid.addWidget(QLabel("Password"), 1, 0)
-        pass_row = QHBoxLayout()
-        pass_row.addWidget(self.my_pass, 1)
-        pass_row.addWidget(show)
-        grid.addLayout(pass_row, 1, 1, 1, 3)
-
         self.my_remember = QCheckBox("Remember (system keyring)")
         if _HAS_KEYRING:
-            self.my_remember.setToolTip(
-                "Store the password in the OS keyring (Windows Credential "
-                "Manager, macOS Keychain, Secret Service). Never written to "
-                "the app's settings file.")
             self.my_remember.toggled.connect(self._on_remember_toggled)
         else:
             self.my_remember.setEnabled(False)
-            self.my_remember.setToolTip(
-                "Install the 'keyring' module to enable this option "
-                "(pip install keyring). Without it, no password is ever "
-                "written to disk.")
-        grid.addWidget(self.my_remember, 2, 1, 1, 3)
+        for widget in (self.my_user, self.my_pass, self.my_remember):
+            widget.setVisible(False)
 
         btn_test = QPushButton("Test connection")
         btn_test.clicked.connect(self._on_test_connection)
-        grid.addWidget(btn_test, 3, 1)
+        grid.addWidget(btn_test, 0, 1)
 
         self.my_status = QLabel("")
         self.my_status.setWordWrap(True)
-        grid.addWidget(self.my_status, 3, 2, 1, 2)
+        grid.addWidget(self.my_status, 0, 2, 1, 2)
 
         hint = QLabel(f"Host: {ds.mysql_host()} (${{MYSQL_HOST}}) · "
-                      f"Database: {ds.mysql_database()} (${{MYSQL_DATABASE}})")
+                      f"Database: {ds.mysql_database()} (${{MYSQL_DATABASE}})\n"
+                      f"User: {ds.mysql_user()} (${{MYSQL_USER}}) · "
+                      f"Password: ${{MYSQL_PASS}} or set in data_source.py")
         hint.setStyleSheet("color:#8a93a0;")
         hint.setWordWrap(True)
-        grid.addWidget(hint, 4, 0, 1, 4)
+        grid.addWidget(hint, 1, 0, 1, 4)
 
         grid.setColumnStretch(1, 1)
         return w
@@ -615,11 +603,12 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ MySQL ----
     def _mysql_config(self):
-        # L'hôte vient de $MYSQL_HOST (data_source.mysql_host), pas de l'UI.
+        # Tout vient de data_source (défauts du code ou variables
+        # d'environnement) : l'UI ne demande plus d'identifiants.
         return {
             "database": ds.mysql_database(),
-            "user": self.my_user.text().strip(),
-            "password": self.my_pass.text(),   # jamais journalisé
+            "user": ds.mysql_user(),
+            "password": ds.mysql_password(),   # jamais journalisé
         }
 
     def _on_test_connection(self):
@@ -743,12 +732,13 @@ class MainWindow(QMainWindow):
             self._error(f"Unexpected error while loading: {exc}", title="Error")
             return
 
-        tasks = am.parse_tasks(self.tasks_edit.text())
         QApplication.setOverrideCursor(Qt.WaitCursor)
         QApplication.processEvents()
         try:
+            # Le contrôle porte sur TOUTES les tasks d'assets ; le champ
+            # « Assets tasks » ne filtre que l'affichage.
             report = am.check_artist_scenes(
-                assets, scenes, binds, artist, project, tasks,
+                assets, scenes, binds, artist, project, tasks=(),
                 shots_only=self.chk_shots_only.isChecked())
         except Exception as exc:
             QApplication.restoreOverrideCursor()
@@ -780,10 +770,15 @@ class MainWindow(QMainWindow):
             return
 
         only_outdated = self.chk_only_outdated.isChecked()
+        # Filtre d'affichage par task d'asset (vide = toutes).
+        wanted = am.parse_tasks(self.tasks_edit.text())
+        wanted = {gm.canon_task(t) for t in wanted} if wanted else None
         shown = 0
         for entry in report.entries:
             rows = [r for r in entry.imports
-                    if (entry.scene_name, r.label) not in self._muted_assets]
+                    if (entry.scene_name, r.label) not in self._muted_assets
+                    and (wanted is None
+                         or gm.canon_task(r.task_name) in wanted)]
             outdated_rows = [r for r in rows if r.outdated]
             if only_outdated and not outdated_rows:
                 continue
@@ -795,6 +790,10 @@ class MainWindow(QMainWindow):
             elif outdated_rows:
                 state = f"{len(outdated_rows)} to update"
                 color = QColor("#b4392c")
+            elif entry.has_outdated:
+                # Périmée, mais rien ne correspond au filtre de tasks courant.
+                state = "nothing matching the task filter"
+                color = QColor("#8a93a0")
             else:
                 state = "up to date"
                 color = QColor("#1c7a44")

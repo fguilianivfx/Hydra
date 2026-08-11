@@ -134,6 +134,10 @@ def _scene_from_mapping(get):
 
 _DEFAULT_MYSQL_HOST = "dd-intra"
 DEFAULT_DATABASE = "dd_assets_tracking"
+# Identifiants par défaut : l'UI ne les demande plus. Chacun reste surchargeable
+# par variable d'environnement, pour éviter de modifier le code.
+_DEFAULT_MYSQL_USER = "f.guiliani"
+_DEFAULT_MYSQL_PASSWORD = "Password"      # à remplacer / passer par $MYSQL_PASS
 
 
 def mysql_host():
@@ -144,6 +148,19 @@ def mysql_host():
 def mysql_database():
     """Base MySQL : $MYSQL_DATABASE, sinon dd_assets_tracking."""
     return os.environ.get("MYSQL_DATABASE", DEFAULT_DATABASE)
+
+
+def mysql_user():
+    """Utilisateur MySQL : $MYSQL_USER, sinon la valeur par défaut."""
+    return os.environ.get("MYSQL_USER", _DEFAULT_MYSQL_USER)
+
+
+def mysql_password():
+    """Mot de passe MySQL : $MYSQL_PASS, sinon la valeur par défaut.
+
+    Jamais journalisé ni écrit dans les réglages de l'application.
+    """
+    return os.environ.get("MYSQL_PASS", _DEFAULT_MYSQL_PASSWORD)
 
 
 def _import_mysql_driver():

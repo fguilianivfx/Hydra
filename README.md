@@ -105,11 +105,11 @@ graphe de dépendances (voir le reste de ce document).
 Contrôle du travail d'un graphiste — reprend la sémantique de l'outil en ligne
 de commande `checkGraph` :
 
-| Champ     | Rôle                                                          |
-|-----------|---------------------------------------------------------------|
-| Graphist  | nom du graphiste (colonne `scenes.author`)                     |
-| Project   | **code court** (`tem`) ou nom complet (`tempete_26`), en préfixe |
-| Tasks     | `all` (défaut) ou une liste : `fx`, `fx, animation`…           |
+| Champ        | Rôle                                                       |
+|--------------|------------------------------------------------------------|
+| Graphist     | nom du graphiste (colonne `scenes.author`)                  |
+| Project      | **code court** (`tem`) ou nom complet (`tempete_26`), en préfixe |
+| Assets tasks | *filtre d'affichage*, sous le bouton : `all` (défaut) ou une liste séparée par espaces/virgules (`fx anim tracking`) |
 
 > La colonne `scenes.project` contient le nom complet du show (`tempete_26`)
 > alors que les **noms de scènes** utilisent son **code court** (`tem`). Les
@@ -122,8 +122,9 @@ assignées au graphiste, et vérifie pour chacune — dans sa **dernière versio
 si ses imports sont à jour. Un import est *obsolète* si son flux d'output
 possède une version publiée plus récente que celle bindée.
 
-* `all` vérifie **tous** les imports ; une liste de tasks ne retient que les
-  assets **de ces types** qui ne sont pas à jour ;
+* le contrôle porte **toujours sur toutes les tasks d'assets** ; le champ
+  *Assets tasks* ne fait que **filtrer l'affichage** — il s'applique donc
+  instantanément, sans relancer le contrôle ;
 * le nom du graphiste est cherché à l'identique, puis de façon **approchée sur
   le nom de famille** (`ginestra` → `sebastien ginestra`) ;
 * chaque ligne d'asset affiche le **nom complet de la scène productrice**
@@ -152,19 +153,22 @@ toute la logique de graphe est indépendante de la provenance.
 Connexion directe au serveur MySQL/MariaDB (via le connecteur `mariadb`,
 `autocommit=True`, curseur en mode dictionnaire).
 
-Seuls **User** et **Password** sont saisis.
+L'onglet ne contient qu'un bouton **Test connection** : tous les paramètres
+viennent du code ou de l'environnement, ce qui évite de ressaisir des
+identifiants et de confondre nom de serveur et nom de base.
 
-| Paramètre | Source                          | Défaut               |
-|-----------|---------------------------------|----------------------|
-| Hôte      | variable `MYSQL_HOST`           | `dd-intra`           |
-| Base      | variable `MYSQL_DATABASE`       | `dd_assets_tracking` |
-| User      | *saisi*                         | —                    |
-| Password  | *saisi* (masqué)                | —                    |
+| Paramètre | Variable d'environnement | Défaut (dans `data_source.py`) |
+|-----------|--------------------------|--------------------------------|
+| Hôte      | `MYSQL_HOST`             | `dd-intra`                     |
+| Base      | `MYSQL_DATABASE`         | `dd_assets_tracking`           |
+| User      | `MYSQL_USER`             | `f.guiliani`                   |
+| Password  | `MYSQL_PASS`             | *(à remplacer)*                |
 
-L'hôte et la base ne sont **pas** demandés dans l'UI (l'onglet rappelle les
-valeurs utilisées) : cela évite de confondre le nom du serveur avec celui de
-la base. Pour pointer ailleurs, définissez les variables d'environnement
-avant de lancer l'appli.
+La variable d'environnement l'emporte toujours sur la valeur du code.
+
+> ⚠ Le mot de passe par défaut est **écrit en clair dans `data_source.py`**,
+> donc versionné avec le dépôt. Préférez la variable `MYSQL_PASS` pour un vrai
+> mot de passe, et gardez une valeur factice dans le code.
 * Bouton **Test connection** (retour succès / erreur) avant de charger.
 * Le mot de passe **reste en mémoire uniquement** : il n'est ni écrit sur
   disque ni journalisé (sauf trousseau système via `keyring`, sur demande).
