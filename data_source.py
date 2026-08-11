@@ -127,40 +127,65 @@ def _scene_from_mapping(get):
 # ---------------------------------------------------------------------------
 # Source 1 : MySQL / MariaDB
 # ---------------------------------------------------------------------------
-# L'hôte n'est PAS demandé dans l'UI : il vient de la variable
-# d'environnement MYSQL_HOST, avec le serveur du studio en défaut. Seuls
-# l'utilisateur et le mot de passe sont saisis. Base par défaut :
-# « dd_assets_tracking ».
+# Les identifiants ne sont pas demandés dans l'UI. Chaque paramètre est résolu
+# dans cet ordre :
+#
+#   1. variable d'environnement (MYSQL_HOST / MYSQL_DATABASE / MYSQL_USER /
+#      MYSQL_PASS) ;
+#   2. fichier « local_config.py » à côté des sources — NON VERSIONNÉ, c'est
+#      là qu'on met le vrai mot de passe ; PyInstaller l'embarque
+#      automatiquement dans l'exécutable ;
+#   3. valeurs par défaut ci-dessous (factices pour le mot de passe).
 
 _DEFAULT_MYSQL_HOST = "dd-intra"
 DEFAULT_DATABASE = "dd_assets_tracking"
-# Identifiants par défaut : l'UI ne les demande plus. Chacun reste surchargeable
-# par variable d'environnement, pour éviter de modifier le code.
 _DEFAULT_MYSQL_USER = "f.guiliani"
-_DEFAULT_MYSQL_PASSWORD = "password_fab"  # à remplacer / passer par $MYSQL_PASS
+_DEFAULT_MYSQL_PASSWORD = "password_fab"   # factice : voir local_config.py
+
+try:                       # pragma: no cover - présent seulement en local
+    import local_config as _local
+except ImportError:
+    _local = None
+
+
+def _setting(env_var, local_name, default):
+    """Environnement > local_config.py > valeur par défaut."""
+    value = os.environ.get(env_var)
+    if value:
+        return value
+    if _local is not None:
+        value = getattr(_local, local_name, None)
+        if value:
+            return value
+    return default
+
+
+def has_local_config():
+    """Vrai si un fichier local_config.py a été chargé."""
+    return _local is not None
 
 
 def mysql_host():
-    """Hôte MySQL : $MYSQL_HOST, sinon le serveur du studio."""
-    return os.environ.get("MYSQL_HOST", _DEFAULT_MYSQL_HOST)
+    """Hôte MySQL."""
+    return _setting("MYSQL_HOST", "MYSQL_HOST", _DEFAULT_MYSQL_HOST)
 
 
 def mysql_database():
-    """Base MySQL : $MYSQL_DATABASE, sinon dd_assets_tracking."""
-    return os.environ.get("MYSQL_DATABASE", DEFAULT_DATABASE)
+    """Base MySQL."""
+    return _setting("MYSQL_DATABASE", "MYSQL_DATABASE", DEFAULT_DATABASE)
 
 
 def mysql_user():
-    """Utilisateur MySQL : $MYSQL_USER, sinon la valeur par défaut."""
-    return os.environ.get("MYSQL_USER", _DEFAULT_MYSQL_USER)
+    """Utilisateur MySQL."""
+    return _setting("MYSQL_USER", "MYSQL_USER", _DEFAULT_MYSQL_USER)
 
 
 def mysql_password():
-    """Mot de passe MySQL : $MYSQL_PASS, sinon la valeur par défaut.
+    """Mot de passe MySQL.
 
     Jamais journalisé ni écrit dans les réglages de l'application.
     """
-    return os.environ.get("MYSQL_PASS", _DEFAULT_MYSQL_PASSWORD)
+    return _setting("MYSQL_PASS", "MYSQL_PASSWORD", _DEFAULT_MYSQL_PASSWORD)
 
 
 def _import_mysql_driver():

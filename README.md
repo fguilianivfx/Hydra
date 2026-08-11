@@ -157,18 +157,34 @@ L'onglet ne contient qu'un bouton **Test connection** : tous les paramètres
 viennent du code ou de l'environnement, ce qui évite de ressaisir des
 identifiants et de confondre nom de serveur et nom de base.
 
-| Paramètre | Variable d'environnement | Défaut (dans `data_source.py`) |
-|-----------|--------------------------|--------------------------------|
-| Hôte      | `MYSQL_HOST`             | `dd-intra`                     |
-| Base      | `MYSQL_DATABASE`         | `dd_assets_tracking`           |
-| User      | `MYSQL_USER`             | `f.guiliani`                   |
-| Password  | `MYSQL_PASS`             | *(à remplacer)*                |
+Chaque paramètre est résolu dans cet ordre : **variable d'environnement** →
+**`local_config.py`** → **valeur par défaut**.
 
-La variable d'environnement l'emporte toujours sur la valeur du code.
+| Paramètre | Variable d'env.  | Clé de `local_config.py` | Défaut               |
+|-----------|------------------|--------------------------|----------------------|
+| Hôte      | `MYSQL_HOST`     | `MYSQL_HOST`             | `dd-intra`           |
+| Base      | `MYSQL_DATABASE` | `MYSQL_DATABASE`         | `dd_assets_tracking` |
+| User      | `MYSQL_USER`     | `MYSQL_USER`             | `f.guiliani`         |
+| Password  | `MYSQL_PASS`     | `MYSQL_PASSWORD`         | *(factice)*          |
 
-> ⚠ Le mot de passe par défaut est **écrit en clair dans `data_source.py`**,
-> donc versionné avec le dépôt. Préférez la variable `MYSQL_PASS` pour un vrai
-> mot de passe, et gardez une valeur factice dans le code.
+### Le vrai mot de passe : `local_config.py`
+
+Pour ne **jamais** toucher à `data_source.py` ni versionner un secret :
+
+```bat
+copy local_config.example.py local_config.py
+:: puis renseigner MYSQL_PASSWORD dans local_config.py
+```
+
+`local_config.py` est **ignoré par git**, et **PyInstaller l'embarque
+automatiquement** (il est importé par `data_source.py`) : la compilation
+habituelle suffit, sans `--add-data` ni `--hidden-import`.
+
+> ⚠ Le mot de passe reste **lisible dans l'exécutable** — PyInstaller ne
+> chiffre rien, `strings Dedale.exe` le révèle. À réserver à une diffusion
+> interne, avec un compte MySQL en **lecture seule**. Pour une distribution
+> plus large, laissez le placeholder et fournissez `MYSQL_PASS` sur chaque
+> poste.
 * Bouton **Test connection** (retour succès / erreur) avant de charger.
 * Le mot de passe **reste en mémoire uniquement** : il n'est ni écrit sur
   disque ni journalisé (sauf trousseau système via `keyring`, sur demande).

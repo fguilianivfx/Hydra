@@ -7,6 +7,9 @@ build/
 dist/
 *.spec
 
+# Réglages locaux : contient le vrai mot de passe, ne doit jamais être versionné.
+local_config.py
+
 # Environnements virtuels
 .venv/
 venv/
