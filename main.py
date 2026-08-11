@@ -844,7 +844,9 @@ class MainWindow(QMainWindow):
             font = top.font(0)
             font.setBold(True)
             top.setFont(0, font)
-            top.setExpanded(bool(outdated_rows) or bool(available_rows))
+            # Repliées par défaut : la liste reste compacte, on déplie à la
+            # demande via le triangle.
+            top.setExpanded(False)
 
             for row in rows:
                 text, stale = _version_state(row.version, row.latest)
