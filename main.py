@@ -355,6 +355,16 @@ class MainWindow(QMainWindow):
             lambda _on: self._populate_artist_tree())
         lay.addWidget(self.chk_only_outdated)
 
+        self.chk_show_uptodate = QCheckBox("Show assets up to date")
+        self.chk_show_uptodate.setChecked(True)
+        self.chk_show_uptodate.setToolTip(
+            "List the imports that are already at their latest published "
+            "version (shown in green). Uncheck to keep only what needs "
+            "updating.")
+        self.chk_show_uptodate.toggled.connect(
+            lambda _on: self._populate_artist_tree())
+        lay.addWidget(self.chk_show_uptodate)
+
         self.chk_show_available = QCheckBox("Show assets not imported")
         self.chk_show_available.setToolTip(
             "Also list, in blue, the assets published on the shot that the "
@@ -809,12 +819,17 @@ class MainWindow(QMainWindow):
         wanted = am.parse_tasks(self.tasks_edit.text())
         wanted = {gm.canon_task(t) for t in wanted} if wanted else None
         shown = 0
+        show_uptodate = self.chk_show_uptodate.isChecked()
         for entry in report.entries:
             rows = [r for r in entry.imports
                     if (entry.scene_name, r.label) not in self._muted_assets
                     and (wanted is None
                          or gm.canon_task(r.task_name) in wanted)]
+            # Le statut de la scène se calcule AVANT de masquer les imports à
+            # jour : les cacher ne doit rien changer au diagnostic.
             outdated_rows = [r for r in rows if r.outdated]
+            if not show_uptodate:
+                rows = outdated_rows
             # Assets publiés sur le plan mais non importés : informatifs, ils
             # ne rendent jamais la scène obsolète (donc pas de « continue »
             # basé sur eux).
@@ -1086,6 +1101,8 @@ class MainWindow(QMainWindow):
             s.value("artist/scene_tasks", am.ALL_TASKS))
         self.chk_shots_only.setChecked(
             s.value("artist/shots_only", "true") == "true")
+        self.chk_show_uptodate.setChecked(
+            s.value("artist/show_uptodate", "true") == "true")
         self.chk_show_available.setChecked(
             s.value("artist/show_available", "false") == "true")
         idx = int(s.value("source_tab", 0))
@@ -1129,6 +1146,8 @@ class MainWindow(QMainWindow):
         s.setValue("artist/scene_tasks", self.scene_tasks_edit.text())
         s.setValue("artist/shots_only",
                    "true" if self.chk_shots_only.isChecked() else "false")
+        s.setValue("artist/show_uptodate",
+                   "true" if self.chk_show_uptodate.isChecked() else "false")
         s.setValue("artist/show_available",
                    "true" if self.chk_show_available.isChecked() else "false")
         s.setValue("source_tab", self.tabs.currentIndex())
