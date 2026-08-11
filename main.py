@@ -326,7 +326,7 @@ class MainWindow(QMainWindow):
         # d'assets, ce champ ne fait que restreindre ce qui est listé — il
         # s'applique donc immédiatement, sans relancer le contrôle.
         filter_row = QHBoxLayout()
-        filter_row.addWidget(QLabel("Assets tasks"))
+        filter_row.addWidget(QLabel("Filter assets tasks"))
         self.tasks_edit = QLineEdit(am.ALL_TASKS)
         self.tasks_edit.setPlaceholderText("all")
         self.tasks_edit.setToolTip(

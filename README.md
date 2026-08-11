@@ -109,7 +109,7 @@ de commande `checkGraph` :
 |--------------|------------------------------------------------------------|
 | Graphist     | nom du graphiste (colonne `scenes.author`)                  |
 | Project      | **code court** (`tem`) ou nom complet (`tempete_26`), en préfixe |
-| Assets tasks | *filtre d'affichage*, sous le bouton : `all` (défaut) ou une liste séparée par espaces/virgules (`fx anim tracking`) |
+| Filter assets tasks | *filtre d'affichage*, sous le bouton : `all` (défaut) ou une liste séparée par espaces/virgules (`fx anim tracking`) |
 
 > La colonne `scenes.project` contient le nom complet du show (`tempete_26`)
 > alors que les **noms de scènes** utilisent son **code court** (`tem`). Les
