@@ -17,9 +17,59 @@ Aucune écriture n'est faite sur la base.
 
 from __future__ import annotations
 
+import datetime
 from collections import defaultdict
 
 import graph_model as gm
+
+# Formats de date rencontrés selon la source (MySQL, CSV, dump SQL).
+_DATE_FORMATS = (
+    "%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d",
+    "%Y/%m/%d %H:%M:%S", "%Y/%m/%d %H:%M", "%Y/%m/%d",
+    "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y",
+    "%d-%m-%Y %H:%M:%S", "%d-%m-%Y",
+)
+
+
+def parse_asset_date(value):
+    """Convertit une date d'asset en ``datetime.date`` (None si illisible)."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime.datetime):
+        return value.date()
+    if isinstance(value, datetime.date):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    # Horodatage epoch éventuel.
+    if text.isdigit() and len(text) >= 9:
+        try:
+            return datetime.datetime.fromtimestamp(int(text)).date()
+        except (OverflowError, OSError, ValueError):
+            return None
+    text = text.replace("T", " ")
+    if "." in text:                 # microsecondes
+        text = text.split(".", 1)[0]
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def date_group_label(day, today=None):
+    """« Today », « Yesterday », sinon la date ISO. None -> « Unknown date »."""
+    if day is None:
+        return "Unknown date"
+    today = today or datetime.date.today()
+    delta = (today - day).days
+    if delta == 0:
+        return "Today"
+    if delta == 1:
+        return "Yesterday"
+    return day.isoformat()
 
 # Filtre de task « toutes les tasks ».
 ALL_TASKS = "all"
@@ -34,17 +84,21 @@ class ImportRow:
     """
 
     __slots__ = ("label", "task_name", "version", "latest", "outdated", "kind",
-                 "date", "author")
+                 "date", "author", "latest_date", "latest_author")
 
     def __init__(self, label, task_name, version, latest, kind="import",
-                 date="", author=""):
+                 date="", author="", latest_date="", latest_author=""):
         self.label = label
         self.task_name = task_name
         self.version = version
         self.latest = latest
         self.kind = kind
-        self.date = date        # date de publication de l'asset (si connue)
-        self.author = author    # graphiste ayant publié l'asset (si connu)
+        self.date = date        # date de publication de la version utilisée
+        self.author = author    # graphiste ayant publié cette version
+        # Version la plus récente du même flux : c'est elle qui constitue la
+        # « nouveauté » quand l'import est périmé.
+        self.latest_date = latest_date or date
+        self.latest_author = latest_author or author
         self.outdated = (kind == "import" and version is not None
                          and latest is not None and version < latest)
 
@@ -52,6 +106,15 @@ class ImportRow:
     def available(self):
         """Asset disponible sur le plan mais non importé."""
         return self.kind == "available"
+
+    @property
+    def news_date(self):
+        """Date qui fait l'actualité : celle de la dernière version publiée.
+
+        Un import périmé est une nouvelle du jour où la version qui le périme
+        a été publiée, pas du jour où l'ancienne l'avait été.
+        """
+        return self.latest_date or self.date
 
 
 class SceneEntry:
@@ -195,7 +258,11 @@ def resolve_authors(scenes, query, project=""):
 
 
 def _latest_asset_versions(assets):
-    """(project, entity, task, av, node) -> version max publiée."""
+    """(project, entity, task, av, node) -> (version max publiée, son asset).
+
+    On conserve l'enregistrement complet : sa date et son auteur servent à
+    dire *quand* et *par qui* un import a été périmé.
+    """
     latest = {}
     for asset in assets.values():
         version = asset["version"]
@@ -203,8 +270,9 @@ def _latest_asset_versions(assets):
             continue
         key = (asset["project"], asset["entity_name"], asset["task_name"],
                asset["av_name"], asset["node_name"])
-        if key not in latest or version > latest[key]:
-            latest[key] = version
+        current = latest.get(key)
+        if current is None or version > current[0]:
+            latest[key] = (version, asset)
     return latest
 
 
@@ -405,12 +473,16 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
                         and gm.canon_task(asset["task_name"]) not in wanted_tasks):
                     continue
                 entry.checked_count += 1
+                newest_version, newest = latest_assets.get(
+                    stream, (asset["version"], asset))
                 row = ImportRow(_asset_label(asset, scene_names, codes),
                                 asset["task_name"],
                                 asset["version"],
-                                latest_assets.get(stream, asset["version"]),
+                                newest_version,
                                 date=asset.get("date", ""),
-                                author=asset.get("artist", ""))
+                                author=asset.get("artist", ""),
+                                latest_date=newest.get("date", ""),
+                                latest_author=newest.get("artist", ""))
                 if row.outdated or not only_outdated_imports:
                     entry.imports.append(row)
 

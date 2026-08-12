@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QSizePolicy,
     QSplitter,
     QHeaderView,
     QTabWidget,
@@ -110,6 +111,10 @@ _DEFAULT_SCENE = "qua_077_02000_comp_v019"
 
 # Bleu des assets publiés sur le plan mais non importés (purement informatif).
 _COL_AVAILABLE = QColor("#1a5fb4")
+
+# Clé d'un groupe de premier niveau (scène ou date) : sert à retrouver les
+# triangles dépliés après reconstruction de l'arbre.
+_ROLE_GROUP = Qt.UserRole + 1
 
 
 def _version_state(current, latest):
@@ -211,6 +216,10 @@ class MainWindow(QMainWindow):
         # (en mémoire uniquement, rien n'est écrit en base).
         self._artist_report = None
         self._muted_assets = set()
+        # Triangles dépliés, mémorisés par mode d'affichage : muter un asset ou
+        # changer une option reconstruit l'arbre sans tout replier.
+        self._artist_tree_mode = "scene"
+        self._expanded_groups = {"scene": set(), "date": set()}
 
         self._build_ui()
         self._restore_settings()
@@ -243,6 +252,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_mysql_tab(), "MySQL")
         self.tabs.addTab(self._build_csv_tab(), "CSV")
         self.tabs.addTab(self._build_sql_tab(), "SQL dump")
+        self.tabs.currentChanged.connect(self._on_source_tab_changed)
         lay.addWidget(self.tabs)
 
         lay.addSpacing(6)
@@ -411,6 +421,14 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.artist_tree, 1)
 
         muted_row = QHBoxLayout()
+        self.btn_whats_new = QPushButton("What's new ?")
+        self.btn_whats_new.setCheckable(True)
+        self.btn_whats_new.setToolTip(
+            "Group the very same assets by publication date instead of by "
+            "scene: Today, Yesterday, then older dates.")
+        self.btn_whats_new.toggled.connect(
+            lambda _on: self._populate_artist_tree())
+        muted_row.addWidget(self.btn_whats_new)
         self.lbl_muted = QLabel("")
         self.lbl_muted.setStyleSheet("color:#8a93a0;")
         muted_row.addWidget(self.lbl_muted, 1)
@@ -435,6 +453,10 @@ class MainWindow(QMainWindow):
         self.view.edge_selected.connect(self._on_edge_selected)
         self.view.links_changed.connect(self._on_links_changed)
         self.view.hidden_nodes_changed.connect(self._on_hidden_nodes_changed)
+        # Minimum volontairement bas : la partie gauche peut ainsi être
+        # élargie très largement en prenant sur le graphe.
+        self.view.setMinimumWidth(80)
+        panel.setMinimumWidth(120)
         lay.addWidget(self.view, 1)
         lay.addWidget(self._build_legend())
         return panel
@@ -470,32 +492,53 @@ class MainWindow(QMainWindow):
         for widget in (self.my_user, self.my_pass, self.my_remember):
             widget.setVisible(False)
 
-        btn_test = QPushButton("Test connection")
-        btn_test.clicked.connect(self._on_test_connection)
-        grid.addWidget(btn_test, 0, 1)
-
+        # Une seule ligne d'état : OK en noir, sinon l'erreur en rouge avec le
+        # détail (hôte, base, origine des réglages) uniquement en cas d'échec.
         self.my_status = QLabel("")
         self.my_status.setWordWrap(True)
-        grid.addWidget(self.my_status, 0, 2, 1, 2)
-
-        # On indique l'ORIGINE de chaque réglage : c'est le seul moyen de voir
-        # d'un coup d'œil si local_config.py est bien pris en compte.
-        origin = ds.settings_origin()
-        local_state = ("local_config.py loaded"
-                       if ds.has_local_config()
-                       else "no local_config.py found — using defaults")
-        hint = QLabel(
-            f"Host: {ds.mysql_host()}  [{origin['host']}]\n"
-            f"Database: {ds.mysql_database()}  [{origin['database']}]\n"
-            f"User: {ds.mysql_user()}  [{origin['user']}]\n"
-            f"Password: {'*' * 8}  [{origin['password']}]\n"
-            f"{local_state}")
-        hint.setStyleSheet("color:#8a93a0;")
-        hint.setWordWrap(True)
-        grid.addWidget(hint, 1, 0, 1, 4)
+        self.my_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        # Sans heightForWidth, le message d'erreur replié se fait tronquer par
+        # la hauteur calculée pour l'onglet.
+        policy = self.my_status.sizePolicy()
+        policy.setVerticalPolicy(QSizePolicy.MinimumExpanding)
+        policy.setHeightForWidth(True)
+        self.my_status.setSizePolicy(policy)
+        grid.addWidget(self.my_status, 0, 0, 1, 4)
 
         grid.setColumnStretch(1, 1)
         return w
+
+    def _connection_details(self):
+        """Contexte affiché en cas d'erreur seulement."""
+        origin = ds.settings_origin()
+        local_state = ("local_config.py loaded" if ds.has_local_config()
+                       else "no local_config.py found")
+        return (f"Host: {ds.mysql_host()} [{origin['host']}] · "
+                f"Database: {ds.mysql_database()} [{origin['database']}] · "
+                f"User: {ds.mysql_user()} [{origin['user']}] · "
+                f"Password [{origin['password']}] · {local_state}")
+
+    def _refresh_mysql_status(self):
+        """Teste la connexion et met à jour la ligne d'état."""
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()
+        try:
+            ok, message = ds.test_mysql_connection(self._mysql_config())
+        finally:
+            QApplication.restoreOverrideCursor()
+        if ok:
+            self.my_status.setText("Connection data base OK")
+            self.my_status.setStyleSheet("color:#1f2529;")
+        else:
+            self.my_status.setText(
+                f"Connection Error\n{message}\n{self._connection_details()}")
+            self.my_status.setStyleSheet("color:#b4392c;")
+        return ok
+
+    def _on_source_tab_changed(self, index):
+        """Le test de connexion n'a lieu qu'en arrivant sur l'onglet MySQL."""
+        if index == 0:
+            self._refresh_mysql_status()
 
     def _build_csv_tab(self):
         w = QWidget()
@@ -578,8 +621,11 @@ class MainWindow(QMainWindow):
 
     def _build_legend(self):
         w = QWidget()
-        lay = QHBoxLayout(w)
-        lay.setContentsMargins(2, 0, 2, 0)
+        outer = QVBoxLayout(w)
+        outer.setContentsMargins(2, 0, 2, 0)
+        outer.setSpacing(4)
+        lay = QHBoxLayout()
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(14)
 
         def swatch(color, text, border=False):
@@ -600,12 +646,21 @@ class MainWindow(QMainWindow):
         swatch(COL_INHERITED_BORDER, "stale by inheritance")
         swatch(COL_START_BORDER, "queried scene", border=True)
         lay.addStretch(1)
+        outer.addLayout(lay)
+
+        # Le rappel des raccourcis occupe sa propre ligne : sur la même que les
+        # pastilles il se réduisait à une colonne étroite dès que l'on
+        # élargissait la partie gauche.
         tip = QLabel("Hover: dependencies + artist · Click a link: details · "
                      "Right-click a link: disable (temporary) · Wheel: zoom · "
                      "Middle button: pan · Drag a node: horizontal · "
                      "Drag a row handle: reorder tasks")
         tip.setStyleSheet("color:#8a93a0;")
-        lay.addWidget(tip)
+        # Sans cela, ce libellé impose une largeur minimale au panneau droit
+        # et empêche d'élargir la partie gauche.
+        tip.setWordWrap(True)
+        tip.setMinimumWidth(1)
+        outer.addWidget(tip)
         return w
 
     # ------------------------------------------------------- file dialogs --
@@ -651,21 +706,6 @@ class MainWindow(QMainWindow):
             "user": ds.mysql_user(),
             "password": ds.mysql_password(),   # jamais journalisé
         }
-
-    def _on_test_connection(self):
-        cfg = self._mysql_config()
-        self.my_status.setText("Testing…")
-        QApplication.setOverrideCursor(Qt.WaitCursor)
-        QApplication.processEvents()
-        try:
-            ok, msg = ds.test_mysql_connection(cfg)
-        finally:
-            QApplication.restoreOverrideCursor()
-        color = "#4fa06d" if ok else "#c9564e"
-        self.my_status.setText(msg)
-        self.my_status.setStyleSheet(f"color:{color};")
-        if ok:
-            self._store_password()
 
     # ------------------------------------------------------- data loading --
     def _current_source(self):
@@ -807,24 +847,31 @@ class MainWindow(QMainWindow):
             f"{report.total} scene(s) for {', '.join(report.artists)} on "
             f"\"{project}\": {report.outdated} to update.")
 
-    def _populate_artist_tree(self):
-        """(Re)construit l'arbre des résultats, en respectant les mutes."""
-        report = getattr(self, "_artist_report", None)
-        self.artist_tree.clear()
-        if report is None:
-            return
+    def _artist_rows(self):
+        """Lignes retenues, scène par scène, après mutes et filtres d'affichage.
 
+        Renvoie une liste de ``(entry, rows, available_rows, outdated_rows)``
+        partagée par les deux modes d'affichage — par scène et par date — pour
+        que « What's new ? » liste rigoureusement les mêmes assets.
+        """
+        report = getattr(self, "_artist_report", None)
+        if report is None:
+            return []
         only_outdated = self.chk_only_outdated.isChecked()
         # Filtre d'affichage par task d'asset (vide = toutes).
         wanted = am.parse_tasks(self.tasks_edit.text())
         wanted = {gm.canon_task(t) for t in wanted} if wanted else None
-        shown = 0
         show_uptodate = self.chk_show_uptodate.isChecked()
-        for entry in report.entries:
-            rows = [r for r in entry.imports
-                    if (entry.scene_name, r.label) not in self._muted_assets
+        show_available = self.chk_show_available.isChecked()
+
+        def keep(entry, row):
+            return ((entry.scene_name, row.label) not in self._muted_assets
                     and (wanted is None
-                         or gm.canon_task(r.task_name) in wanted)]
+                         or gm.canon_task(row.task_name) in wanted))
+
+        prepared = []
+        for entry in report.entries:
+            rows = [r for r in entry.imports if keep(entry, r)]
             # Le statut de la scène se calcule AVANT de masquer les imports à
             # jour : les cacher ne doit rien changer au diagnostic.
             outdated_rows = [r for r in rows if r.outdated]
@@ -833,17 +880,67 @@ class MainWindow(QMainWindow):
             # Assets publiés sur le plan mais non importés : informatifs, ils
             # ne rendent jamais la scène obsolète (donc pas de « continue »
             # basé sur eux).
-            available_rows = []
-            if self.chk_show_available.isChecked():
-                available_rows = [
-                    r for r in entry.available
-                    if (entry.scene_name, r.label) not in self._muted_assets
-                    and (wanted is None
-                         or gm.canon_task(r.task_name) in wanted)]
+            available_rows = ([r for r in entry.available if keep(entry, r)]
+                              if show_available else [])
             if only_outdated and not outdated_rows:
                 continue
-            shown += 1
+            prepared.append((entry, rows, available_rows, outdated_rows))
+        return prepared
 
+    def _capture_expanded(self):
+        """Mémorise les groupes dépliés du mode actuellement affiché."""
+        root = self.artist_tree.invisibleRootItem()
+        if root.childCount() == 0:
+            return          # arbre vide : on garde la mémoire précédente
+        keys = set()
+        for i in range(root.childCount()):
+            item = root.child(i)
+            key = item.data(0, _ROLE_GROUP)
+            if item.isExpanded() and key is not None:
+                keys.add(key)
+        self._expanded_groups[self._artist_tree_mode] = keys
+
+    def _restore_expanded(self, mode):
+        """Redéplie les groupes qui l'étaient ; les nouveaux restent repliés."""
+        keys = self._expanded_groups.get(mode, set())
+        root = self.artist_tree.invisibleRootItem()
+        for i in range(root.childCount()):
+            item = root.child(i)
+            item.setExpanded(item.data(0, _ROLE_GROUP) in keys)
+
+    def _populate_artist_tree(self):
+        """(Re)construit l'arbre des résultats, en respectant les mutes."""
+        report = getattr(self, "_artist_report", None)
+        # L'état des triangles est relevé AVANT le clear() : muter un asset ou
+        # cocher une option ne doit rien replier.
+        self._capture_expanded()
+        self.artist_tree.clear()
+        if report is None:
+            return
+
+        prepared = self._artist_rows()
+        mode = "date" if self.btn_whats_new.isChecked() else "scene"
+        if mode == "date":
+            detail = self._fill_tree_by_date(prepared)
+        else:
+            detail = self._fill_tree_by_scene(prepared)
+        self._artist_tree_mode = mode
+        self._restore_expanded(mode)
+
+        tasks = ", ".join(report.tasks) if report.tasks else "all"
+        approx = ("  (loose name match)" if report.match_mode == "approx"
+                  else "")
+        self.artist_summary.setText(
+            f"{', '.join(report.artists)}{approx} · project(s): "
+            f"{', '.join(report.projects) or '—'} · tasks: {tasks}\n"
+            f"{report.total} scene(s): {report.outdated} to update, "
+            f"{report.up_to_date} up to date, {report.no_imports} without "
+            f"matching import." + detail)
+        self._refresh_muted_label()
+
+    def _fill_tree_by_scene(self, prepared):
+        """Affichage par défaut : une scène par ligne, ses assets en dessous."""
+        for entry, rows, available_rows, outdated_rows in prepared:
             if entry.checked_count == 0:
                 state = "no import"
                 color = QColor("#8a93a0")
@@ -869,14 +966,12 @@ class MainWindow(QMainWindow):
                               f"{entry.checked_count} import(s) checked — {state}")
             top.setForeground(1, color)
             top.setData(0, Qt.UserRole, entry.scene_name)
+            top.setData(0, _ROLE_GROUP, entry.scene_name)
             # Toutes les scènes en gras : elles se distinguent ainsi des
             # lignes d'asset, quelle que soit leur fraîcheur.
             font = top.font(0)
             font.setBold(True)
             top.setFont(0, font)
-            # Repliées par défaut : la liste reste compacte, on déplie à la
-            # demande via le triangle.
-            top.setExpanded(False)
 
             for row in rows:
                 text, stale = _version_state(row.version, row.latest)
@@ -904,17 +999,81 @@ class MainWindow(QMainWindow):
                 self.artist_tree.setItemWidget(
                     child, 2, self._make_mute_button(entry.scene_name, row.label))
 
-        tasks = ", ".join(report.tasks) if report.tasks else "all"
-        approx = ("  (loose name match)" if report.match_mode == "approx"
-                  else "")
-        self.artist_summary.setText(
-            f"{', '.join(report.artists)}{approx} · project(s): "
-            f"{', '.join(report.projects) or '—'} · tasks: {tasks}\n"
-            f"{report.total} scene(s): {report.outdated} to update, "
-            f"{report.up_to_date} up to date, {report.no_imports} without "
-            f"matching import." + ("" if shown == report.total
-                                   else f"  ({shown} shown)"))
-        self._refresh_muted_label()
+        total = getattr(self._artist_report, "total", len(prepared))
+        return "" if len(prepared) == total else f"  ({len(prepared)} shown)"
+
+    def _fill_tree_by_date(self, prepared):
+        """Mode « What's new ? » : les mêmes assets, regroupés par date.
+
+        Un asset publié une fois mais importé par plusieurs scènes du graphiste
+        n'apparaît qu'une seule fois ; les scènes concernées sont rappelées dans
+        l'info-bulle, et le bouton « mute » les couvre toutes.
+        """
+        # date (ou None) -> label d'asset -> [row, [scènes qui l'utilisent]]
+        groups = {}
+        for entry, rows, available_rows, _outdated in prepared:
+            for row in list(rows) + list(available_rows):
+                # On classe sur la dernière version publiée : un import périmé
+                # est une nouvelle du jour où la version qui le périme est
+                # sortie, pas du jour de l'ancienne.
+                day = am.parse_asset_date(row.news_date)
+                bucket = groups.setdefault(day, {})
+                key = (row.label, row.version, row.kind)
+                slot = bucket.get(key)
+                if slot is None:
+                    bucket[key] = [row, [entry]]
+                else:
+                    slot[1].append(entry)
+
+        # Aujourd'hui d'abord, puis du plus récent au plus ancien ; les assets
+        # sans date lisible ferment la marche.
+        days = sorted((d for d in groups if d is not None), reverse=True)
+        if None in groups:
+            days.append(None)
+
+        assets = 0
+        for day in days:
+            bucket = groups[day]
+            items = sorted(bucket.values(), key=lambda slot: slot[0].label)
+            assets += len(items)
+            outdated = sum(1 for row, _users in items if row.outdated)
+            label = am.date_group_label(day)
+            top = QTreeWidgetItem(self.artist_tree,
+                                  [label, f"{len(items)}", ""])
+            top.setData(0, _ROLE_GROUP, label)
+            top.setToolTip(0, f"{len(items)} asset(s) published — "
+                              f"{outdated} outdated in the scenes listed.")
+            top.setForeground(1, QColor("#b4392c") if outdated
+                              else QColor("#8a93a0"))
+            font = top.font(0)
+            font.setBold(True)
+            top.setFont(0, font)
+
+            for row, users in items:
+                if row.available:
+                    text = (f"v{row.version:03d}"
+                            if row.version is not None else "v?")
+                else:
+                    text, _stale = _version_state(row.version, row.latest)
+                child = QTreeWidgetItem(top, [row.label, text, ""])
+                if row.available:
+                    child.setForeground(0, _COL_AVAILABLE)
+                    child.setForeground(1, _COL_AVAILABLE)
+                else:
+                    child.setForeground(1, QColor("#b4392c") if row.outdated
+                                        else QColor("#1c7a44"))
+                names = sorted({e.display_name for e in users})
+                tip = self._asset_tooltip(
+                    row, ("not imported by: " if row.available
+                          else "imported by: ") + ", ".join(names))
+                child.setToolTip(0, tip)
+                child.setToolTip(1, tip)
+                self.artist_tree.setItemWidget(
+                    child, 2, self._make_mute_button(
+                        [e.scene_name for e in users], row.label))
+
+        return (f"  (what's new: {assets} asset(s) over {len(days)} date(s) "
+                f"in {len(prepared)} scene(s))")
 
     @staticmethod
     def _asset_tooltip(row, extra=""):
@@ -927,21 +1086,35 @@ class MainWindow(QMainWindow):
             lines.append(f"version: {_version_state(row.version, row.latest)[0]}")
         lines.append(f"exported: {row.date or 'unknown date'}")
         lines.append(f"published by: {row.author or 'unknown'}")
+        if row.outdated:
+            # Ce qui rend l'import périmé : quand et par qui la nouvelle
+            # version est sortie.
+            lines.append(f"v{row.latest:03d} published: "
+                         f"{row.latest_date or 'unknown date'} by "
+                         f"{row.latest_author or 'unknown'}")
         if extra:
             lines.append(extra)
         return "\n".join(lines)
 
-    def _make_mute_button(self, scene_name, label):
+    def _make_mute_button(self, scene_names, label):
+        """Bouton « mute » d'une ligne d'asset (une ou plusieurs scènes)."""
+        names = ((scene_names,) if isinstance(scene_names, str)
+                 else tuple(scene_names))
         button = QToolButton()
         button.setText("×")
         button.setAutoRaise(True)
-        button.setToolTip("Mute this asset (hide the line)")
+        button.setToolTip("Mute this asset (hide the line)" if len(names) < 2
+                          else f"Mute this asset in the {len(names)} scenes "
+                               "that use it")
         button.clicked.connect(
-            lambda _checked=False, s=scene_name, a=label: self._mute_asset(s, a))
+            lambda _checked=False, s=names, a=label: self._mute_asset(s, a))
         return button
 
-    def _mute_asset(self, scene_name, label):
-        self._muted_assets.add((scene_name, label))
+    def _mute_asset(self, scene_names, label):
+        """Masque l'asset (mémoire seulement : rien n'est écrit en base)."""
+        names = ((scene_names,) if isinstance(scene_names, str)
+                 else tuple(scene_names))
+        self._muted_assets.update((name, label) for name in names)
         self._populate_artist_tree()
         self.statusBar().showMessage(f"Muted: {label}")
 

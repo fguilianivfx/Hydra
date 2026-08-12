@@ -140,7 +140,9 @@ possède une version publiée plus récente que celle bindée.
   d'export** et le **graphiste qui l'a publié** (colonnes facultatives de la
   table `assets` : `date`/`created_at`… et `author`/`user`…) ;
 * chaque ligne d'asset porte un bouton **×** (*mute*) qui masque la ligne ; les
-  mutes survivent à un nouveau *Check scenes* et **Unmute all** les rétablit ;
+  mutes survivent à un nouveau *Check scenes* et **Unmute all** les rétablit.
+  Muter un asset ou changer une option **ne replie pas** les triangles déjà
+  ouverts ;
 * *Shots only* (coché par défaut) ne garde que les scènes de **plans** : les
   tasks de niveau asset (modeling, shading, rigging) sont écartées, mais une
   task inconnue est **conservée** pour ne jamais masquer de travail par erreur ;
@@ -159,6 +161,26 @@ possède une version publiée plus récente que celle bindée.
 
 Les mutes sont **en mémoire uniquement** : rien n'est écrit dans la base.
 
+#### « What's new ? »
+
+Le bouton **What's new ?**, à gauche de *Unmute all*, bascule la même liste
+d'un regroupement **par scène** à un regroupement **par date de publication**.
+Les filtres sont rigoureusement identiques (mutes, *Filter assets tasks*,
+*Only scenes to update*, *Show assets up to date*, *Show assets not imported*) :
+seuls les groupes changent.
+
+* les groupes sont **Today**, **Yesterday**, puis les dates ISO de la plus
+  récente à la plus ancienne ; les assets sans date lisible ferment la marche
+  sous *Unknown date* ;
+* chaque date est un **triangle de dépliage**, replié par défaut, et porte le
+  nombre d'assets ;
+* la date retenue est celle de la **version qui fait la nouveauté** : pour un
+  import périmé, c'est la date de la version **qui le périme** (`v005`), pas
+  celle de la version encore utilisée (`v003`). L'info-bulle rappelle les deux
+  ainsi que le graphiste qui a publié chacune ;
+* un asset importé par plusieurs scènes du graphiste n'apparaît **qu'une fois** ;
+  l'info-bulle liste les scènes concernées et le bouton **×** les mute toutes.
+
 ---
 
 ## Les trois sources de données
@@ -171,9 +193,16 @@ toute la logique de graphe est indépendante de la provenance.
 Connexion directe au serveur MySQL/MariaDB (via le connecteur `mariadb`,
 `autocommit=True`, curseur en mode dictionnaire).
 
-L'onglet ne contient qu'un bouton **Test connection** : tous les paramètres
-viennent du code ou de l'environnement, ce qui évite de ressaisir des
-identifiants et de confondre nom de serveur et nom de base.
+L'onglet ne contient **aucun champ** : tous les paramètres viennent du code ou
+de l'environnement, ce qui évite de ressaisir des identifiants et de confondre
+nom de serveur et nom de base. Il affiche une seule ligne d'état, retestée à
+chaque fois qu'on ouvre l'onglet :
+
+* **Connection data base OK**, en noir, quand le serveur répond ;
+* **Connection Error**, en rouge, suivi du message du serveur *et* du détail des
+  réglages (hôte, base, user, et l'**origine** de chacun : `$MYSQL_HOST`,
+  `local_config.py` ou `default`). Ce détail n'apparaît **qu'en cas d'erreur**,
+  et ne contient jamais le mot de passe.
 
 Chaque paramètre est résolu dans cet ordre : **variable d'environnement** →
 **`local_config.py`** → **valeur par défaut**.
@@ -203,7 +232,7 @@ habituelle suffit, sans `--add-data` ni `--hidden-import`.
 > interne, avec un compte MySQL en **lecture seule**. Pour une distribution
 > plus large, laissez le placeholder et fournissez `MYSQL_PASS` sur chaque
 > poste.
-* Bouton **Test connection** (retour succès / erreur) avant de charger.
+* Le statut de connexion est retesté à chaque ouverture de l'onglet.
 * Le mot de passe **reste en mémoire uniquement** : il n'est ni écrit sur
   disque ni journalisé (sauf trousseau système via `keyring`, sur demande).
 * Les requêtes sont **statiques** — aucune concaténation d'entrée utilisateur.
@@ -367,6 +396,8 @@ Le nombre de nœuds masqués est rappelé sous la case.
 | `data_source.py`  | `load_from_mysql` / `load_from_csv` / `load_from_sql_dump`. |
 | `graph_model.py`  | Résolution du nom, parcours scenes+binds, regroupement, statut, disposition. |
 | `graph_view.py`   | `QGraphicsScene`/`QGraphicsView`, items nœud & arête, drag horizontal, survol, zoom/pan. |
+| `artist_model.py` | Outil « Graphist to graph » : scènes d'un graphiste, imports périmés, assets disponibles, dates de publication. |
+| `local_config.example.py` | Modèle à copier en `local_config.py` (non versionné) pour le vrai mot de passe. |
 | `sample_data/`    | Jeu d'exemple (CSV + dump SQL) pour un essai immédiat.       |
 
 ## Ordre des lignes de tâche
