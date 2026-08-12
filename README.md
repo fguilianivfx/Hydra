@@ -159,7 +159,10 @@ possède une version publiée plus récente que celle bindée.
   déjà à leur dernière version (les lignes vertes). Les masquer ne change ni
   le statut des scènes ni le compteur d'imports vérifiés ;
 * *Show assets not imported* liste en plus, **en bleu**, les assets publiés sur
-  le **plan** que la scène **n'importe pas** (dernière version disponible). Ils
+  le **plan** que la scène **n'importe pas**, **une seule ligne par asset, à sa
+  dernière version publiée** — même quand plusieurs flux (variantes d'un même
+  node) aboutissent au même libellé, seule la version la plus récente est
+  affichée. Ils
   sont purement informatifs : ils **ne rendent jamais une scène obsolète**, ne
   sont pas comptés dans « to update », et n'entraînent pas l'affichage d'une
   scène sous *Only scenes to update*. Le filtre *Filter assets tasks* et le

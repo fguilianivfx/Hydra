@@ -529,6 +529,7 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
 
         # Assets publiés sur le même plan mais NON importés par la scène.
         # Purement informatif : ils ne rendent pas la scène obsolète.
+        available = {}
         for stream, (latest_version, asset) in \
                 streams_by_entity.get((project_name, entity), {}).items():
             if stream in imported_streams:
@@ -539,10 +540,16 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
             if (wanted_tasks is not None
                     and gm.canon_task(asset["task_name"]) not in wanted_tasks):
                 continue
-            entry.available.append(ImportRow(
+            row = ImportRow(
                 _asset_label(asset, scene_names, codes), asset["task_name"],
                 latest_version, latest_version, kind="available",
-                date=asset.get("date", ""), author=asset.get("artist", "")))
+                date=asset.get("date", ""), author=asset.get("artist", ""))
+            # Plusieurs flux peuvent aboutir au même libellé (variantes d'un
+            # même node) : on n'affiche que la dernière version publiée.
+            known = available.get(row.label)
+            if known is None or (row.version or -1) > (known.version or -1):
+                available[row.label] = row
+        entry.available = list(available.values())
 
         entry.imports.sort(key=lambda r: r.label)
         entry.available.sort(key=lambda r: r.label)
