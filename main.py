@@ -421,14 +421,14 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.artist_tree, 1)
 
         muted_row = QHBoxLayout()
-        self.btn_whats_new = QPushButton("What's new ?")
-        self.btn_whats_new.setCheckable(True)
-        self.btn_whats_new.setToolTip(
+        self.btn_whats_up = QPushButton("What's up ?")
+        self.btn_whats_up.setCheckable(True)
+        self.btn_whats_up.setToolTip(
             "Group the very same assets by publication date instead of by "
             "scene: Today, Yesterday, then older dates.")
-        self.btn_whats_new.toggled.connect(
+        self.btn_whats_up.toggled.connect(
             lambda _on: self._populate_artist_tree())
-        muted_row.addWidget(self.btn_whats_new)
+        muted_row.addWidget(self.btn_whats_up)
         self.lbl_muted = QLabel("")
         self.lbl_muted.setStyleSheet("color:#8a93a0;")
         muted_row.addWidget(self.lbl_muted, 1)
@@ -852,7 +852,7 @@ class MainWindow(QMainWindow):
 
         Renvoie une liste de ``(entry, rows, available_rows, outdated_rows)``
         partagée par les deux modes d'affichage — par scène et par date — pour
-        que « What's new ? » liste rigoureusement les mêmes assets.
+        que « What's up ? » liste rigoureusement les mêmes assets.
         """
         report = getattr(self, "_artist_report", None)
         if report is None:
@@ -919,7 +919,7 @@ class MainWindow(QMainWindow):
             return
 
         prepared = self._artist_rows()
-        mode = "date" if self.btn_whats_new.isChecked() else "scene"
+        mode = "date" if self.btn_whats_up.isChecked() else "scene"
         if mode == "date":
             detail = self._fill_tree_by_date(prepared)
         else:
@@ -1003,7 +1003,7 @@ class MainWindow(QMainWindow):
         return "" if len(prepared) == total else f"  ({len(prepared)} shown)"
 
     def _fill_tree_by_date(self, prepared):
-        """Mode « What's new ? » : les mêmes assets, regroupés par date.
+        """Mode « What's up ? » : les mêmes assets, regroupés par date.
 
         Un asset publié une fois mais importé par plusieurs scènes du graphiste
         n'apparaît qu'une seule fois ; les scènes concernées sont rappelées dans
@@ -1041,8 +1041,9 @@ class MainWindow(QMainWindow):
             top = QTreeWidgetItem(self.artist_tree,
                                   [label, f"{len(items)}", ""])
             top.setData(0, _ROLE_GROUP, label)
-            top.setToolTip(0, f"{len(items)} asset(s) published — "
-                              f"{outdated} outdated in the scenes listed.")
+            top.setToolTip(0, self._no_date_hint(len(items)) if day is None
+                           else f"{len(items)} asset(s) published — "
+                                f"{outdated} outdated in the scenes listed.")
             top.setForeground(1, QColor("#b4392c") if outdated
                               else QColor("#8a93a0"))
             font = top.font(0)
@@ -1072,8 +1073,27 @@ class MainWindow(QMainWindow):
                     child, 2, self._make_mute_button(
                         [e.scene_name for e in users], row.label))
 
-        return (f"  (what's new: {assets} asset(s) over {len(days)} date(s) "
-                f"in {len(prepared)} scene(s))")
+        detail = (f"  (what's up: {assets} asset(s) over {len(days)} date(s) "
+                  f"in {len(prepared)} scene(s))")
+        if days == [None]:
+            # Tout sous « Unknown date » : la table assets n'expose aucune
+            # colonne de date exploitable — on le dit plutôt que de laisser
+            # croire à un bug d'affichage.
+            column = ds.asset_schema().get("date_column")
+            detail += ("\nNo publication date in the assets table"
+                       + (f" (column \"{column}\" is empty)." if column
+                          else " — hover \"Unknown date\" for its columns."))
+        return detail
+
+    @staticmethod
+    def _no_date_hint(count):
+        """Explique pourquoi des assets n'ont aucune date exploitable."""
+        schema = ds.asset_schema()
+        columns = ", ".join(schema.get("columns") or ()) or "unknown"
+        used = schema.get("date_column") or "none found"
+        return (f"{count} asset(s) without a readable publication date.\n"
+                f"assets date column used: {used}\n"
+                f"assets columns seen: {columns}")
 
     @staticmethod
     def _asset_tooltip(row, extra=""):

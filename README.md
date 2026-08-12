@@ -161,9 +161,9 @@ possède une version publiée plus récente que celle bindée.
 
 Les mutes sont **en mémoire uniquement** : rien n'est écrit dans la base.
 
-#### « What's new ? »
+#### « What's up ? »
 
-Le bouton **What's new ?**, à gauche de *Unmute all*, bascule la même liste
+Le bouton **What's up ?**, à gauche de *Unmute all*, bascule la même liste
 d'un regroupement **par scène** à un regroupement **par date de publication**.
 Les filtres sont rigoureusement identiques (mutes, *Filter assets tasks*,
 *Only scenes to update*, *Show assets up to date*, *Show assets not imported*) :
@@ -180,6 +180,20 @@ seuls les groupes changent.
   ainsi que le graphiste qui a publié chacune ;
 * un asset importé par plusieurs scènes du graphiste n'apparaît **qu'une fois** ;
   l'info-bulle liste les scènes concernées et le bouton **×** les mute toutes.
+
+**D'où vient la date ?** De la table `assets`. Le nom de la colonne varie d'un
+studio à l'autre : elle est donc **détectée automatiquement**, dans cet ordre —
+un nom connu (`date`, `created_at`, `publish_date`…), puis un nom évocateur
+(contenant `date`, `time`, `creat`, `publi`, `export`, `updat`…), puis, en
+dernier recours, **toute colonne dont les valeurs ressemblent à des dates**
+(`2026-08-08 17:49`, `08/08/2026`, ou un `DATETIME` MySQL). Une colonne connue
+mais vide ne l'emporte jamais sur une colonne réellement remplie, et les
+colonnes d'identité (`id`, `version`, `name`, `node_name`…) sont exclues — un
+intervalle de frames `1001-1240` ne peut donc pas passer pour une date.
+
+Si aucune colonne exploitable n'existe, tout se retrouve sous **Unknown date**
+et l'outil le **dit** : le résumé l'indique et l'info-bulle du groupe liste les
+colonnes réellement vues dans `assets`.
 
 ---
 

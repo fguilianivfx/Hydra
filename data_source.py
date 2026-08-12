@@ -25,6 +25,7 @@ indépendamment de la source.
 from __future__ import annotations
 
 import csv
+import datetime
 import os
 import re
 
@@ -84,8 +85,12 @@ def norm_str(value):
     return s
 
 
-def _asset_from_mapping(get):
-    """Construit un enregistrement asset depuis un accès par nom de colonne."""
+def _asset_from_mapping(get, date_column=""):
+    """Construit un enregistrement asset depuis un accès par nom de colonne.
+
+    ``date_column`` est la colonne de date retenue pour la table courante (voir
+    ``resolve_date_column``) ; à défaut on retombe sur les noms connus.
+    """
     return {
         "project": norm_str(get("project")),
         "entity_name": norm_str(get("entity_name")),
@@ -97,7 +102,8 @@ def _asset_from_mapping(get):
         # puis auteur et date de publication (affichés au survol).
         "name": norm_str(get("name")),
         "artist": _pick(get, _ARTIST_COLUMNS),
-        "date": _pick(get, _DATE_COLUMNS),
+        "date": (norm_str(get(date_column)) if date_column
+                 else _pick(get, _DATE_COLUMNS)),
     }
 
 
@@ -108,6 +114,103 @@ _ARTIST_COLUMNS = ("artist", "user", "username", "created_by", "author",
 _DATE_COLUMNS = ("date", "created_at", "creation_date", "created", "ctime",
                  "export_date", "publish_date", "published_at", "timestamp",
                  "mtime", "updated_at")
+# Fragments de noms trahissant une colonne de date, quand aucun nom connu ne
+# correspond (les schémas varient d'un studio à l'autre).
+_DATE_HINTS = ("date", "time", "stamp", "creat", "publi", "export", "modif",
+               "updat", "jour")
+# Colonnes qui ne peuvent pas porter de date, même si leur valeur y ressemble.
+_NEVER_DATE_COLUMNS = frozenset(
+    ("id", "asset_id", "scene_id", "version", "active", "project",
+     "entity_name", "task_name", "av_name", "node_name", "name")
+    + _ARTIST_COLUMNS)
+
+# Un vrai horodatage porte un séparateur : un entier seul (numéro de frame,
+# taille de fichier…) ne doit jamais être pris pour une date.
+_DATE_LIKE_RE = re.compile(r"\d{2,4}[-/.]\d{1,2}[-/.]\d{1,4}")
+
+
+def _looks_like_date(value):
+    """Vrai si la valeur est une date/datetime ou un texte qui y ressemble."""
+    if isinstance(value, (datetime.date, datetime.datetime)):
+        return True
+    return bool(_DATE_LIKE_RE.search(norm_str(value)))
+
+
+def resolve_date_column(columns, samples=()):
+    """Colonne portant la date de publication d'un asset.
+
+    Trois passes, de la plus sûre à la plus permissive : nom connu
+    (``date``, ``created_at``…), nom évocateur (``*date*``, ``*creat*``…),
+    puis n'importe quelle colonne dont les valeurs ressemblent à des dates.
+    Sans cette détection, un schéma nommant sa colonne autrement renvoie tous
+    les assets sous « Unknown date ».
+
+    ``samples`` est une liste d'accesseurs ``get(nom)`` sur quelques lignes.
+    """
+    names = [norm_str(c) for c in columns if norm_str(c)]
+    by_lower = {}
+    for name in names:
+        by_lower.setdefault(name.lower(), name)
+
+    def dated(name):
+        return any(_looks_like_date(get(name)) for get in samples)
+
+    def named_ok(name):
+        """Un nom parlant suffit ; une colonne vide partout reste valable."""
+        if not samples or dated(name):
+            return True
+        return not any(norm_str(get(name)) for get in samples)
+
+    def by_name(accept):
+        for known in _DATE_COLUMNS:
+            name = by_lower.get(known)
+            if name and accept(name):
+                return name
+        for name in names:
+            low = name.lower()
+            if low in _NEVER_DATE_COLUMNS:
+                continue
+            if any(hint in low for hint in _DATE_HINTS) and accept(name):
+                return name
+        return ""
+
+    # Un nom connu mais vide partout ne doit pas l'emporter sur une colonne
+    # réellement remplie : on exige d'abord des valeurs datées.
+    if samples:
+        found = by_name(dated)
+        if found:
+            return found
+    found = by_name(named_ok)
+    if found:
+        return found
+    # Dernier recours : le contenu fait foi.
+    return next((name for name in names
+                 if name.lower() not in _NEVER_DATE_COLUMNS and dated(name)),
+                "")
+
+
+# Dernier schéma lu pour la table « assets » : permet d'expliquer dans
+# l'interface pourquoi aucune date n'a pu être trouvée.
+_LAST_ASSET_SCHEMA = {"columns": (), "date_column": ""}
+
+
+def asset_schema():
+    """Colonnes vues au dernier chargement + colonne de date retenue."""
+    return dict(_LAST_ASSET_SCHEMA)
+
+
+def _remember_asset_schema(columns, date_column):
+    _LAST_ASSET_SCHEMA["columns"] = tuple(
+        norm_str(c) for c in columns if norm_str(c))
+    _LAST_ASSET_SCHEMA["date_column"] = date_column
+    return date_column
+
+
+def _asset_date_column(rows):
+    """Résout (et mémorise) la colonne de date depuis les lignes chargées."""
+    columns = list(rows[0].keys()) if rows else []
+    return _remember_asset_schema(
+        columns, resolve_date_column(columns, [r.get for r in rows[:200]]))
 
 
 def _pick(get, names):
@@ -333,11 +436,13 @@ def load_from_mysql(config):
         with _MysqlSession(config) as cursor:
             # SELECT * : récupère aussi les colonnes facultatives (name…).
             cursor.execute("SELECT * FROM assets")
-            for row in cursor.fetchall():
+            asset_rows = cursor.fetchall()
+            date_column = _asset_date_column(asset_rows)
+            for row in asset_rows:
                 aid = to_int(row.get("id"))
                 if aid is None:
                     continue
-                assets[aid] = _asset_from_mapping(row.get)
+                assets[aid] = _asset_from_mapping(row.get, date_column)
 
             # SELECT * : récupère aussi une éventuelle colonne « graphiste »
             # (artist/user/created_by…) sans échouer si elle est absente.
@@ -404,11 +509,13 @@ def load_from_csv(paths):
 
     assets, scenes, binds = {}, {}, []
 
-    for row in _read_csv_rows(paths["assets"], "assets"):
+    asset_rows = _read_csv_rows(paths["assets"], "assets")
+    date_column = _asset_date_column(asset_rows)
+    for row in asset_rows:
         aid = to_int(row.get("id"))
         if aid is None:
             continue
-        assets[aid] = _asset_from_mapping(row.get)
+        assets[aid] = _asset_from_mapping(row.get, date_column)
 
     for row in _read_csv_rows(paths["scenes"], "scenes"):
         sid = to_int(row.get("id"))
@@ -537,6 +644,9 @@ def load_from_sql_dump(path):
 
     current = None   # table cible en cours, ou None
     colmap = None
+    # Le dump est lu en streaming : la colonne de date est résolue sur la
+    # première ligne d'assets rencontrée, puis réutilisée.
+    date_state = {"column": None}
 
     def store(vals):
         """Range un tuple de valeurs dans la bonne table selon ``current``."""
@@ -550,7 +660,10 @@ def load_from_sql_dump(path):
             aid = to_int(get("id"))
             if aid is None:
                 raise ValueError("id asset manquant")
-            assets[aid] = _asset_from_mapping(get)
+            if date_state["column"] is None:
+                date_state["column"] = _remember_asset_schema(
+                    colmap, resolve_date_column(colmap, [get]))
+            assets[aid] = _asset_from_mapping(get, date_state["column"])
         elif current == "scenes":
             sid = to_int(get("id"))
             if sid is None:
