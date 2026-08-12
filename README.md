@@ -143,9 +143,17 @@ possède une version publiée plus récente que celle bindée.
   mutes survivent à un nouveau *Check scenes* et **Unmute all** les rétablit.
   Muter un asset ou changer une option **ne replie pas** les triangles déjà
   ouverts ;
-* *Shots only* (coché par défaut) ne garde que les scènes de **plans** : les
-  tasks de niveau asset (modeling, shading, rigging) sont écartées, mais une
-  task inconnue est **conservée** pour ne jamais masquer de travail par erreur ;
+* *Shots only* (coché par défaut) ne garde que les scènes de **plans**. Le tri
+  se fait sur le **nom de l'entité**, pas sur la task : un plan se nomme
+  `<séquence>_<numéro>` (`077_0100`, `024C_0035`, `seq010_sh0020` — les deux
+  derniers segments comportent des chiffres) tandis qu'un asset porte un nom
+  (`chaise`, `caravane_fx`, `robot_01`). La task seule ne suffisait pas : un
+  asset peut porter une task **inconnue** (`grooming`, `sculpt`) voire une task
+  de **niveau shot** (`caravane_fx` en task `fx`), et ces scènes ressortaient à
+  tort. Une task de niveau asset portée par un plan reste écartée, une task
+  inconnue portée par un plan est **conservée** — jamais de travail masqué par
+  erreur. Si **aucune** entité du projet ne suit cette convention de nommage,
+  l'outil retombe sur le niveau de la task plutôt que de vider la liste ;
 * *Only scenes to update* masque les scènes entièrement à jour ;
 * *Show assets up to date* (cochée par défaut) affiche ou masque les imports
   déjà à leur dernière version (les lignes vertes). Les masquer ne change ni
@@ -212,7 +220,7 @@ de l'environnement, ce qui évite de ressaisir des identifiants et de confondre
 nom de serveur et nom de base. Il affiche une seule ligne d'état, retestée à
 chaque fois qu'on ouvre l'onglet :
 
-* **Connection data base OK**, en noir, quand le serveur répond ;
+* **Connection DB OK**, en vert, quand le serveur répond ;
 * **Connection Error**, en rouge, suivi du message du serveur *et* du détail des
   réglages (hôte, base, user, et l'**origine** de chacun : `$MYSQL_HOST`,
   `local_config.py` ou `default`). Ce détail n'apparaît **qu'en cas d'erreur**,

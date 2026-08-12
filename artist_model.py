@@ -368,13 +368,45 @@ def _asset_label(asset, scene_names=None, codes=None):
 
 
 def is_shot_scene(task_name):
-    """Vrai si la scène relève d'un plan (et non d'un asset).
+    """Vrai si la task ne relève pas du niveau asset.
 
     On écarte uniquement les tasks de **niveau asset** (modeling, shading,
     rigging) : une task inconnue est conservée, pour ne jamais masquer
-    silencieusement du travail.
+    silencieusement du travail. Ne suffit pas à trancher — voir
+    ``is_shot_entity`` : un asset peut porter une task inconnue, voire une
+    task de niveau shot (``caravane_fx``).
     """
     return gm.task_level(task_name) != "asset"
+
+
+def is_shot_entity(entity_name):
+    """Vrai si l'entité désigne un **plan** et non un asset.
+
+    Un plan se nomme ``<séquence>_<numéro>`` — ``077_0100``, ``024C_0035``,
+    ``seq010_sh0020`` — donc ses deux derniers segments comportent des
+    chiffres. Un asset porte un nom (``chaise``, ``caravane_fx``,
+    ``robot_01``). C'est le signal le plus sûr : la task seule ne suffit pas,
+    un asset pouvant porter une task inconnue ou de niveau shot.
+    """
+    parts = (entity_name or "").strip().split("_")
+    if len(parts) < 2:
+        return False
+    return all(any(ch.isdigit() for ch in part) for part in parts[-2:])
+
+
+def _shot_filter(candidates):
+    """Prédicat « est-ce un plan ? » adapté au nommage réellement observé.
+
+    Si au moins une entité suit la convention ``<séquence>_<numéro>``, elle
+    fait foi (et l'on écarte en plus les tasks de niveau asset portées par un
+    plan). Sinon — convention de nommage différente — on retombe sur le niveau
+    de la task, pour ne jamais vider la liste par excès de zèle.
+    """
+    if any(is_shot_entity(scene.get("entity_name", ""))
+           for _sid, scene in candidates):
+        return lambda scene: (is_shot_entity(scene.get("entity_name", ""))
+                              and is_shot_scene(scene.get("task_name", "")))
+    return lambda scene: is_shot_scene(scene.get("task_name", ""))
 
 
 def check_artist_scenes(assets, scenes, binds, artist, project,
@@ -401,20 +433,29 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
     wanted_scene_tasks = ({gm.canon_task(t) for t in scene_tasks}
                           if scene_tasks else None)
 
-    # Dernière version de chaque scène (project, entity, task, av) du projet.
-    latest_scene = {}
+    # Scènes du projet, filtrées avant de ne retenir que la dernière version.
+    candidates = []
     for scene_id, scene in scenes.items():
         if prefix and not _matches_project(scene, prefix):
-            continue
-        if shots_only and not is_shot_scene(scene.get("task_name", "")):
             continue
         if (wanted_scene_tasks is not None
                 and gm.canon_task(scene.get("task_name", ""))
                 not in wanted_scene_tasks):
             continue
-        version = scene.get("version")
-        if version is None:
+        if scene.get("version") is None:
             continue
+        candidates.append((scene_id, scene))
+
+    if shots_only:
+        # Le filtre se décide sur l'ensemble : il faut voir le nommage des
+        # entités du projet avant de trancher scène par scène.
+        keep = _shot_filter(candidates)
+        candidates = [(sid, scene) for sid, scene in candidates if keep(scene)]
+
+    # Dernière version de chaque scène (project, entity, task, av).
+    latest_scene = {}
+    for scene_id, scene in candidates:
+        version = scene["version"]
         key = (scene["project"], scene["entity_name"], scene["task_name"],
                scene["av_name"])
         current = latest_scene.get(key)

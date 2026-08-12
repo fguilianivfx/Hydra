@@ -527,8 +527,8 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
         if ok:
-            self.my_status.setText("Connection data base OK")
-            self.my_status.setStyleSheet("color:#1f2529;")
+            self.my_status.setText("Connection DB OK")
+            self.my_status.setStyleSheet("color:#1c7a44;")
         else:
             self.my_status.setText(
                 f"Connection Error\n{message}\n{self._connection_details()}")
