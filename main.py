@@ -320,6 +320,15 @@ class MainWindow(QMainWindow):
         self.formats_box.setVisible(False)
         lay.addWidget(self.formats_box)
 
+        # Les options ci-dessus masquent des nœuds sans bouger les autres :
+        # ce bouton resserre le graphe à la demande.
+        self.btn_redraw = QPushButton("Redraw layout")
+        self.btn_redraw.setToolTip(
+            "Pack the visible nodes back together, dropping the columns "
+            "freed by the hidden ones, and refit the view.")
+        self.btn_redraw.clicked.connect(self._on_redraw_layout)
+        lay.addWidget(self.btn_redraw)
+
         self.lbl_hidden = QLabel("")
         self.lbl_hidden.setStyleSheet("color:#8a93a0;")
         self.lbl_hidden.setWordWrap(True)
@@ -357,6 +366,11 @@ class MainWindow(QMainWindow):
         self.lbl_formats.setVisible(has_any)
         self.formats_box.setVisible(has_any)
         self.view.set_shown_formats(set(formats) - hidden)
+
+    def _on_redraw_layout(self):
+        """Resserre le graphe sur les nœuds encore affichés."""
+        self.view.redraw_layout()
+        self.statusBar().showMessage("Layout redrawn on the visible nodes.")
 
     def _on_formats_toggled(self):
         self.view.set_shown_formats(

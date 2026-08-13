@@ -471,16 +471,19 @@ Un format inconnu n'affiche pas de crochets vides.
 Les trois réglages se **cumulent** avec les clics droit, chacun se levant
 indépendamment, et n'écrivent **jamais** dans la base.
 
-**Le graphe se resserre** dès qu'un réglage change ce qui est affiché : les
-colonnes libérées par les nœuds masqués sont supprimées, les nœuds restants
-sont ramenés vers la gauche et la vue est recadrée sur l'ensemble. Sans cela,
-masquer 150 nœuds sur 170 laissait les rescapés étalés sur toute la largeur
-d'origine, illisibles. L'ordre gauche-droite calculé par barycentre est
-conservé, et tout réafficher rend exactement la disposition de départ.
+**Redraw layout** — bouton sous les réglages. Masquer des nœuds **ne déplace
+jamais** les autres : ils restent où ils étaient, ce qui laisse des colonnes
+vides (masquer 150 nœuds sur 170 étalait les rescapés sur toute la largeur
+d'origine). Ce bouton **resserre le graphe à la demande** : les colonnes
+libérées disparaissent, les nœuds restants sont ramenés vers la gauche et la
+vue est recadrée sur l'ensemble. L'ordre gauche-droite calculé par barycentre
+est conservé, l'opération est idempotente, et tout réafficher puis redessiner
+rend exactement la disposition de départ.
 
 > Le classement se fait sur la colonne du modèle : un nœud **déplacé à la
-> main** revient donc sur sa colonne quand une option d'affichage change.
-> Désactiver un lien qui ne masque rien ne touche pas à la disposition.
+> main** revient donc sur sa colonne au prochain *Redraw layout*.
+> **Reset layout** (barre d'outils) est différent : il rétablit la disposition
+> **d'origine** — ordre des lignes et colonnes initiales, trous compris.
 
 > Nuance : le nœud à l'origine d'une republication (ex. un `modeling` dont un
 > `v007` existe alors que le graphe tire le `v005`) reste **vert** — ses
@@ -502,7 +505,8 @@ conservé, et tout réafficher rend exactement la disposition de départ.
 | **Molette**                     | Zoom (ancré sous le curseur)               |
 | **Bouton du milieu** + glisser  | Déplacement (pan)                          |
 | **Recentrer** (`Ctrl+0`)        | Ajuste le zoom pour tout voir              |
-| **Réinitialiser la disposition**| Rétablit l'ordre des lignes et les colonnes|
+| **Reset layout** (barre d'outils) | Rétablit l'ordre des lignes et les colonnes d'origine |
+| **Redraw layout** (panneau gauche) | Resserre le graphe sur les nœuds encore affichés |
 
 ---
 

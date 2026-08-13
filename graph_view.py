@@ -708,9 +708,6 @@ class DependencyGraphView(QGraphicsView):
         # Afficher les nœuds devenus inaccessibles (reliés uniquement par des
         # liens désactivés) ?
         self._show_disconnected = True
-        # Dernier ensemble de nœuds affichés : sert à ne resserrer le graphe
-        # que lorsqu'il change réellement.
-        self._visible_keys = set()
 
         self._panning = False
         self._pan_last = None
@@ -727,7 +724,6 @@ class DependencyGraphView(QGraphicsView):
         self._sep_label = None
         self._result = None
         self._selected_edge = None
-        self._visible_keys = set()
         # Les désactivations sont perdues dès que le graphe change.
         self._disabled_edges = set()
 
@@ -795,7 +791,6 @@ class DependencyGraphView(QGraphicsView):
             dst.add_edge(edge)
 
         # 5) placement.
-        self._visible_keys = set(self._node_items)
         self._reflow(record_initial=True)
         self.reset_view()
 
@@ -1022,21 +1017,24 @@ class DependencyGraphView(QGraphicsView):
             visible = set(self._node_items)
         else:
             visible = self._reachable_keys()
-        changed = visible != self._visible_keys
-        self._visible_keys = set(visible)
         for key, item in self._node_items.items():
             item.setVisible(key in visible)
         for edge in self._edges:
             edge.setVisible(edge.top_key in visible
                             and edge.bottom_key in visible)
-        # On ne redessine que si l'ensemble affiché a bougé : désactiver un
-        # lien sans rien masquer ne doit pas réorganiser la vue.
-        if changed:
-            self._compact_columns()
+        # La disposition n'est PAS recalculée ici : masquer des nœuds laisse
+        # les autres en place, et c'est le bouton « Redraw layout » qui
+        # resserre le graphe quand on le demande.
         self._reflow()
-        if changed:
-            self.reset_view()
         self.hidden_nodes_changed.emit(len(self._node_items) - len(visible))
+
+    def redraw_layout(self):
+        """Resserre le graphe sur ce qui est affiché et recadre la vue."""
+        if self._result is None:
+            return
+        self._compact_columns()
+        self._reflow()
+        self.reset_view()
 
     # --- survol d'un lien ---------------------------------------------------
     def _on_edge_hover(self, edge):
@@ -1265,8 +1263,7 @@ class DependencyGraphView(QGraphicsView):
             pos = self._initial_pos.get(key)
             if pos is not None:
                 item.setPos(QPointF(pos.x(), item.y()))   # restaure le X
-        # Rétablir la disposition ne doit pas réintroduire les trous laissés
-        # par les branches masquées.
-        self._compact_columns()
+        # On rétablit vraiment la disposition d'origine : resserrer le graphe
+        # est le rôle de « Redraw layout ».
         self._reflow()
         self.reset_view()
