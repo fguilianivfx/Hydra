@@ -482,6 +482,18 @@ class MainWindow(QMainWindow):
         self.avail_tasks_edit.textChanged.connect(
             lambda _text: self._populate_artist_tree())
         available_row.addWidget(self.avail_tasks_edit, 1)
+
+        available_row.addWidget(QLabel("Formats"))
+        self.avail_formats_edit = QLineEdit(am.ALL_TASKS)
+        self.avail_formats_edit.setPlaceholderText("all")
+        self.avail_formats_edit.setToolTip(
+            "Restrict the assets not imported (blue lines) to these export "
+            "formats: \"all\", or one or more formats separated by spaces or "
+            "commas (e.g. \"exr abc bgeo.sc\"). An asset whose format is "
+            "unknown is kept only under \"all\".")
+        self.avail_formats_edit.textChanged.connect(
+            lambda _text: self._populate_artist_tree())
+        available_row.addWidget(self.avail_formats_edit, 1)
         lay.addLayout(available_row)
 
         # Filtre d'affichage des ASSETS listés : le contrôle porte toujours sur
@@ -1003,10 +1015,12 @@ class MainWindow(QMainWindow):
         wanted = {gm.canon_task(t) for t in wanted} if wanted else None
         show_uptodate = self.chk_show_uptodate.isChecked()
         show_available = self.chk_show_available.isChecked()
-        # Filtre supplémentaire, propre aux assets non importés (lignes bleues).
+        # Filtres supplémentaires, propres aux assets non importés (bleus).
         avail_wanted = am.parse_tasks(self.avail_tasks_edit.text())
         avail_wanted = ({gm.canon_task(t) for t in avail_wanted}
                         if avail_wanted else None)
+        avail_formats = am.parse_formats(self.avail_formats_edit.text())
+        avail_formats = set(avail_formats) if avail_formats else None
 
         def keep(entry, row):
             return ((entry.scene_name, row.label) not in self._muted_assets
@@ -1016,7 +1030,8 @@ class MainWindow(QMainWindow):
         def keep_available(entry, row):
             return (keep(entry, row)
                     and (avail_wanted is None
-                         or gm.canon_task(row.task_name) in avail_wanted))
+                         or gm.canon_task(row.task_name) in avail_wanted)
+                    and (avail_formats is None or row.fmt in avail_formats))
 
         prepared = []
         for entry in report.entries:
@@ -1249,6 +1264,8 @@ class MainWindow(QMainWindow):
     def _asset_tooltip(row, extra=""):
         """Info-bulle d'une ligne d'asset : version, date d'export, graphiste."""
         lines = [row.label, f"task: {row.task_name}"]
+        if row.fmt:
+            lines.append(f"format: {row.fmt}")
         if row.outdated:
             lines.append(f"version: {_version_state(row.version, row.latest)[0]}"
                          "  (outdated)")

@@ -20,6 +20,7 @@ from __future__ import annotations
 import datetime
 from collections import defaultdict
 
+import data_source as ds
 import graph_model as gm
 
 # Formats de date rencontrés selon la source (MySQL, CSV, dump SQL).
@@ -84,12 +85,14 @@ class ImportRow:
     """
 
     __slots__ = ("label", "task_name", "version", "latest", "outdated", "kind",
-                 "date", "author", "latest_date", "latest_author")
+                 "date", "author", "latest_date", "latest_author", "fmt")
 
     def __init__(self, label, task_name, version, latest, kind="import",
-                 date="", author="", latest_date="", latest_author=""):
+                 date="", author="", latest_date="", latest_author="",
+                 fmt=""):
         self.label = label
         self.task_name = task_name
+        self.fmt = fmt          # format du fichier publié (exr, abc, bgeo.sc…)
         self.version = version
         self.latest = latest
         self.kind = kind
@@ -201,6 +204,27 @@ def parse_tasks(text):
         if canon not in tasks:
             tasks.append(canon)
     return tasks
+
+
+def parse_formats(text):
+    """« all » -> [] ; « exr, abc » -> ['exr', 'abc'] (normalisés).
+
+    Même syntaxe que ``parse_tasks`` — espaces ou virgules — mais sans alias :
+    un format est pris tel quel, en minuscules et sans point de tête, les
+    extensions composées comprises (``.BGEO.SC`` -> ``bgeo.sc``).
+    """
+    raw = (text or "").strip()
+    if not raw or raw.lower() == ALL_TASKS:
+        return []
+    parts = [p.strip() for chunk in raw.split(",") for p in chunk.split()]
+    formats = []
+    for part in parts:
+        if not part or part.lower() == ALL_TASKS:
+            continue
+        fmt = ds.norm_format(part)
+        if fmt and fmt not in formats:
+            formats.append(fmt)
+    return formats
 
 
 def scene_author(scene):
@@ -535,7 +559,8 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
                                 date=asset.get("date", ""),
                                 author=asset.get("artist", ""),
                                 latest_date=newest.get("date", ""),
-                                latest_author=newest.get("artist", ""))
+                                latest_author=newest.get("artist", ""),
+                                fmt=asset.get("format", ""))
                 if row.outdated or not only_outdated_imports:
                     entry.imports.append(row)
 
@@ -555,7 +580,8 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
             row = ImportRow(
                 _asset_label(asset, scene_names, codes), asset["task_name"],
                 latest_version, latest_version, kind="available",
-                date=asset.get("date", ""), author=asset.get("artist", ""))
+                date=asset.get("date", ""), author=asset.get("artist", ""),
+                fmt=asset.get("format", ""))
             # Plusieurs flux peuvent aboutir au même libellé (variantes d'un
             # même node) : on n'affiche que la dernière version publiée.
             known = available.get(row.label)

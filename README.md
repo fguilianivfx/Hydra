@@ -171,10 +171,13 @@ possède une version publiée plus récente que celle bindée.
 * *Show assets up to date* (cochée par défaut) affiche ou masque les imports
   déjà à leur dernière version (les lignes vertes). Les masquer ne change ni
   le statut des scènes ni le compteur d'imports vérifiés ;
-* *Show assets not imported*, avec son propre champ **Tasks** (`all` par
-  défaut) à sa droite : il restreint les **lignes bleues** à ces tasks, en plus
-  du *Filter assets tasks* global — pratique pour ne voir que ce qui manque
-  d'une task donnée sans toucher au reste de la liste. Cette option liste, **en
+* *Show assets not imported*, avec ses deux champs à sa droite — **Tasks** et
+  **Formats**, `all` par défaut : ils restreignent les **lignes bleues** à ces
+  tasks et à ces formats d'export (`exr`, `abc`, `bgeo.sc`…), en plus du
+  *Filter assets tasks* global. Pratique pour ne voir que ce qui manque d'une
+  task ou d'un type de fichier donné, sans toucher au reste de la liste ; les
+  deux se cumulent, la syntaxe est la même (espaces ou virgules), et le format
+  de chaque ligne figure dans son info-bulle. Cette option liste, **en
   bleu**, les assets publiés sur
   le **plan** que la scène **n'importe pas**, **une seule ligne par asset, à sa
   dernière version publiée** — même quand plusieurs flux (variantes d'un même
