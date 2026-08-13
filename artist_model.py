@@ -350,8 +350,13 @@ def _codes_by_project(scenes):
 
 
 def _asset_label(asset, scene_names=None, codes=None):
-    """Libellé d'un asset importé : « nom de la scène productrice · node »."""
-    node = asset.get("node_name") or asset.get("name") or "?"
+    """Libellé d'un asset importé : « scène productrice · nom publié ».
+
+    Le nom affiché est celui de la colonne ``name`` (« dd_28_rues_armel_shd »),
+    pas la clé du flux ``node_name`` (« dd ») — c'est celui-là que le graphiste
+    voit dans sa scène.
+    """
+    node = gm.asset_display_name(asset) or "?"
     key = (asset["project"], asset["entity_name"], asset["task_name"],
            asset["av_name"])
     base = (scene_names or {}).get(key)

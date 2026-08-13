@@ -9,8 +9,9 @@ scènes dont elle dépend, coloré selon leur fraîcheur.
   de la version — ex. `tmp_024C_0060_lighting_main (v010)` ; puis **un output
   par ligne** — chaque output en **vert** s'il est à sa dernière version
   publiée, en **rouge** sinon avec la version disponible (`rendercam ⚠
-  (v001 → v002)`). Un nom d'output est écrit sur ses **20 premiers
-  caractères**, suivis de `...` s'il est tronqué
+  (v001 → v002)`). Le nom affiché est le **nom publié** (`assets.name`,
+  ex. `dd_28_rues_armel_shd`) et non la clé de flux `node_name` (`dd`), écrit
+  sur ses **20 premiers caractères** suivis de `...` s'il est tronqué
   (`camera_layer_01_camera_abc` → `camera_layer_01_came...`) ;
 * une **ligne par type de tâche**, en deux niveaux (**asset** puis **shot**)
   séparés par un trait, le flux descendant ; lignes **réordonnables** en
@@ -323,10 +324,12 @@ set DEDALE_IGNORED_NODES=            :: ne rien ignorer du tout
 Colonnes **requises** (les autres sont ignorées) :
 
 * **`assets.csv`** : `id, project, entity_name, task_name, av_name,
-  node_name, version` — colonnes facultatives : **date** de publication
-  (`date`, `created_at`… ou détectée), **graphiste** (`artist`, `author`…) et
-  **format** (`format`, `ext`… ou l'extension d'un chemin), qui alimente la
-  liste *Show formats*.
+  node_name, version` — colonnes facultatives : **`name`**, le nom réellement
+  publié (`dd_28_rues_armel_shd`), affiché partout à la place de `node_name`
+  (`dd`) qui ne sert que de clé de flux pour le versionnage ; **date** de
+  publication (`date`, `created_at`… ou détectée), **graphiste** (`artist`,
+  `author`…) et **format** (`format`, `ext`… ou l'extension d'un chemin), qui
+  alimente la liste *Show formats*.
 * **`scenes.csv`** : `id, name, project, entity_name, task_name, av_name,
   version` — le titre du rectangle reprend `name` + version ; une colonne
   **graphiste** facultative (`artist`, `user`, `created_by`…) alimente le survol.

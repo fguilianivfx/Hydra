@@ -440,10 +440,12 @@ def build_graph(assets, scenes, binds, input_name):
     # chaque output (pour les info-bulles et la liste « Mute formats »).
     group_node_names = defaultdict(set)
     group_formats = defaultdict(dict)
+    group_labels = defaultdict(dict)
     for aid in seen_assets:
         a = assets[aid]
         key = _asset_scene_key(a)
         group_node_names[key].add(a["node_name"])
+        group_labels[key].setdefault(a["node_name"], asset_display_name(a))
         fmt = a.get("format", "")
         if fmt:
             group_formats[key].setdefault(a["node_name"], fmt)
@@ -498,7 +500,8 @@ def build_graph(assets, scenes, binds, input_name):
 
     # Détails par output + inputs + graphiste(s), et titre (nom de table).
     for node in result.nodes.values():
-        _compute_outputs(node, asset_stream_max, group_formats.get(node.key))
+        _compute_outputs(node, asset_stream_max, group_formats.get(node.key),
+                         group_labels.get(node.key))
         _compute_inputs(node, node_inputs.get(node.key, ()),
                         assets, asset_stream_max)
         _fill_scene_meta(node, scenes_by_iv, scenes)
@@ -554,13 +557,16 @@ def build_graph(assets, scenes, binds, input_name):
     return result
 
 
-def _compute_outputs(node, asset_stream_max, node_formats=None):
-    """Renseigne node.outputs = [(name, latest_version, format)].
+def _compute_outputs(node, asset_stream_max, node_formats=None,
+                     node_labels=None):
+    """Renseigne node.outputs = [(nom publié, latest_version, format)].
 
     ``latest_version`` est la dernière version EXPORTÉE de cet asset (flux
     ``project, entity, task, av, node_name``). L'output est à jour si
     ``node.version >= latest_version`` (comparaison au niveau de l'asset).
     Le format (abc, bgeo.sc, hda…) est celui du fichier publié, '' si inconnu.
+    Le libellé affiché est le **nom publié** (``assets.name``) et non la clé
+    du flux (``node_name``) — voir ``asset_display_name``.
     """
     outputs = []
     for name in node.node_names:
@@ -569,8 +575,19 @@ def _compute_outputs(node, asset_stream_max, node_formats=None):
              node.av_name, name))
         if latest is None:
             latest = node.version
-        outputs.append((name, latest, (node_formats or {}).get(name, "")))
-    node.outputs = outputs
+        outputs.append(((node_labels or {}).get(name, name), latest,
+                        (node_formats or {}).get(name, "")))
+    node.outputs = sorted(outputs, key=lambda o: o[0])
+
+
+def asset_display_name(asset):
+    """Nom publié d'un asset : la colonne ``name``, sinon ``node_name``.
+
+    ``node_name`` n'est que la clé du flux (« dd ») ; c'est ``assets.name``
+    qui porte le nom réellement publié et importé
+    (« dd_28_rues_armel_shd »). On affiche donc celui-ci dès qu'il existe.
+    """
+    return (asset.get("name") or "").strip() or asset.get("node_name", "")
 
 
 def _input_label(asset):
@@ -579,8 +596,8 @@ def _input_label(asset):
     base = f"{asset['entity_name']}_{taskdisp}"
     if asset["av_name"]:
         base += f"_{asset['av_name']}"
-    node_name = asset["node_name"]
-    return f"{base} · {node_name}" if node_name else base
+    name = asset_display_name(asset)
+    return f"{base} · {name}" if name else base
 
 
 def _compute_inputs(node, input_ids, assets, asset_stream_max):
