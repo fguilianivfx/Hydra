@@ -708,6 +708,9 @@ class DependencyGraphView(QGraphicsView):
         # Afficher les nœuds devenus inaccessibles (reliés uniquement par des
         # liens désactivés) ?
         self._show_disconnected = True
+        # Dernier ensemble de nœuds affichés : sert à ne resserrer le graphe
+        # que lorsqu'il change réellement.
+        self._visible_keys = set()
 
         self._panning = False
         self._pan_last = None
@@ -724,6 +727,7 @@ class DependencyGraphView(QGraphicsView):
         self._sep_label = None
         self._result = None
         self._selected_edge = None
+        self._visible_keys = set()
         # Les désactivations sont perdues dès que le graphe change.
         self._disabled_edges = set()
 
@@ -791,6 +795,7 @@ class DependencyGraphView(QGraphicsView):
             dst.add_edge(edge)
 
         # 5) placement.
+        self._visible_keys = set(self._node_items)
         self._reflow(record_initial=True)
         self.reset_view()
 
@@ -970,6 +975,29 @@ class DependencyGraphView(QGraphicsView):
             return 0
         return len(self._node_items) - len(self._reachable_keys())
 
+    def _compact_columns(self):
+        """Resserre chaque ligne : les nœuds masqués ne laissent plus de trous.
+
+        ``node.col`` est l'indice du nœud **dans sa ligne** : masquer des
+        branches y creuse des colonnes vides et étale le graphe sur toute sa
+        largeur d'origine. On renumérote donc les nœuds visibles de chaque
+        ligne, en conservant leur ordre gauche-droite — celui calculé par
+        barycentre pour limiter les croisements.
+
+        Le classement se fait toujours sur ``node.col`` (jamais sur la
+        position courante) : la compaction est idempotente, et un nœud
+        déplacé à la main revient sur sa colonne quand l'affichage change.
+        """
+        for row in self._rows:
+            visible = sorted((it for it in row.nodes if it.isVisible()),
+                             key=lambda it: it.node.col)
+            # Les masqués sont rangés à la suite : ils ne se superposent pas
+            # aux visibles, et retrouvent leur place à la compaction suivante.
+            hidden = sorted((it for it in row.nodes if not it.isVisible()),
+                            key=lambda it: it.node.col)
+            for i, it in enumerate(visible + hidden):
+                it.setPos(QPointF(MARGIN_LEFT + i * COL_W, it.y()))
+
     def _update_visibility(self):
         """Applique l'option d'affichage et replace ce qui reste."""
         if self._result is None:
@@ -978,12 +1006,20 @@ class DependencyGraphView(QGraphicsView):
             visible = set(self._node_items)
         else:
             visible = self._reachable_keys()
+        changed = visible != self._visible_keys
+        self._visible_keys = set(visible)
         for key, item in self._node_items.items():
             item.setVisible(key in visible)
         for edge in self._edges:
             edge.setVisible(edge.top_key in visible
                             and edge.bottom_key in visible)
+        # On ne redessine que si l'ensemble affiché a bougé : désactiver un
+        # lien sans rien masquer ne doit pas réorganiser la vue.
+        if changed:
+            self._compact_columns()
         self._reflow()
+        if changed:
+            self.reset_view()
         self.hidden_nodes_changed.emit(len(self._node_items) - len(visible))
 
     # --- survol d'un lien ---------------------------------------------------
@@ -995,9 +1031,11 @@ class DependencyGraphView(QGraphicsView):
 
     # --- disposition des lignes --------------------------------------------
     def _scene_right(self):
-        max_col = max((it.node.col for it in self._node_items.values()
-                       if it.isVisible()), default=0)
-        return MARGIN_LEFT + (max_col + 1) * COL_W
+        # Sur la position réelle et non sur node.col : après compaction, les
+        # colonnes du modèle ne correspondent plus à ce qui est dessiné.
+        max_x = max((it.x() for it in self._node_items.values()
+                     if it.isVisible()), default=MARGIN_LEFT - COL_W)
+        return max_x + COL_W
 
     @staticmethod
     def _visible_nodes(row):
@@ -1211,5 +1249,8 @@ class DependencyGraphView(QGraphicsView):
             pos = self._initial_pos.get(key)
             if pos is not None:
                 item.setPos(QPointF(pos.x(), item.y()))   # restaure le X
+        # Rétablir la disposition ne doit pas réintroduire les trous laissés
+        # par les branches masquées.
+        self._compact_columns()
         self._reflow()
         self.reset_view()

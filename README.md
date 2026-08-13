@@ -469,6 +469,17 @@ Un format inconnu n'affiche pas de crochets vides.
 Les trois réglages se **cumulent** avec les clics droit, chacun se levant
 indépendamment, et n'écrivent **jamais** dans la base.
 
+**Le graphe se resserre** dès qu'un réglage change ce qui est affiché : les
+colonnes libérées par les nœuds masqués sont supprimées, les nœuds restants
+sont ramenés vers la gauche et la vue est recadrée sur l'ensemble. Sans cela,
+masquer 150 nœuds sur 170 laissait les rescapés étalés sur toute la largeur
+d'origine, illisibles. L'ordre gauche-droite calculé par barycentre est
+conservé, et tout réafficher rend exactement la disposition de départ.
+
+> Le classement se fait sur la colonne du modèle : un nœud **déplacé à la
+> main** revient donc sur sa colonne quand une option d'affichage change.
+> Désactiver un lien qui ne masque rien ne touche pas à la disposition.
+
 > Nuance : le nœud à l'origine d'une republication (ex. un `modeling` dont un
 > `v007` existe alors que le graphe tire le `v005`) reste **vert** — ses
 > propres inputs sont sains — mais ses lignes d'output apparaissent en **rouge**
