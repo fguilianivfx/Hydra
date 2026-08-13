@@ -199,20 +199,42 @@ _FORMAT_COLUMNS = ("format", "ext", "extension", "file_format", "filetype",
 # Colonnes portant un chemin ou un nom de fichier, dont on tire l'extension.
 _PATH_COLUMNS = ("path", "file", "filename", "file_path", "filepath",
                  "output", "output_path", "name")
-_EXT_RE = re.compile(r"\.([A-Za-z][A-Za-z0-9]{0,5})$")
+# Extension simple, éventuellement précédée d'une seconde (« .bgeo.sc »).
+_EXT_RE = re.compile(r"\.([A-Za-z][A-Za-z0-9]{0,9})$")
+_COMPOUND_EXT_RE = re.compile(
+    r"\.([A-Za-z][A-Za-z0-9]{0,9})\.([A-Za-z][A-Za-z0-9]{0,3})$")
+# Suffixes de compression qui prolongent l'extension au lieu de la remplacer :
+# un cache Houdini « smoke.bgeo.sc » est un « bgeo.sc », pas un « sc ».
+_EXT_SUFFIXES = frozenset(("sc", "gz", "bz2", "xz", "zip", "lz4", "zst"))
 
 
 def norm_format(value):
-    """Normalise un format d'asset : « .ABC » -> « abc » ('' si invalide)."""
-    text = norm_str(value).lower().lstrip(".")
-    if not text or len(text) > 8 or not text.isalnum():
+    """Normalise un format d'asset : « .ABC » -> « abc » ('' si invalide).
+
+    Les formats composés sont acceptés (``bgeo.sc``) : seuls les caractères
+    alphanumériques et le point sont admis, et chaque segment doit être
+    alphanumérique — un chemin ou une phrase est donc rejeté.
+    """
+    text = norm_str(value).lower().strip().lstrip(".")
+    if not text or len(text) > 16:
+        return ""
+    parts = text.split(".")
+    if len(parts) > 2 or not all(p.isalnum() for p in parts):
         return ""
     return text
 
 
 def _extension_of(value):
-    """Extension d'un chemin ou d'un nom de fichier ('' si aucune)."""
-    match = _EXT_RE.search(norm_str(value))
+    """Extension d'un chemin ou d'un nom de fichier ('' si aucune).
+
+    Reconnaît les extensions composées de Houdini (``.bgeo.sc``,
+    ``.geo.gz``) : sans cela un cache compressé se réduisait à « sc ».
+    """
+    text = norm_str(value)
+    match = _COMPOUND_EXT_RE.search(text)
+    if match and match.group(2).lower() in _EXT_SUFFIXES:
+        return f"{match.group(1)}.{match.group(2)}".lower()
+    match = _EXT_RE.search(text)
     return match.group(1).lower() if match else ""
 
 

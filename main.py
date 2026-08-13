@@ -117,6 +117,11 @@ _COL_AVAILABLE = QColor("#1a5fb4")
 _ROLE_GROUP = Qt.UserRole + 1
 
 
+def _with_format(label, fmt):
+    """« smoke » + « bgeo.sc » -> « smoke [bgeo.sc] » (inchangé si inconnu)."""
+    return f"{label} [{fmt}]" if fmt else label
+
+
 def _version_state(current, latest):
     """« (vXXX) » si à jour, « (vXXX → vYYY) » si une version plus récente existe."""
     cur = f"v{current:03d}" if current is not None else "v?"
@@ -173,9 +178,9 @@ class LinkDetailsDialog(QDialog):
         flowing = QTreeWidgetItem(
             self._tree, [f"Assets through this link ({len(info['assets'])})", ""])
         flowing.setExpanded(True)
-        for label, cur, latest in info["assets"]:
+        for label, cur, latest, fmt in info["assets"]:
             text, stale = _version_state(cur, latest)
-            item = QTreeWidgetItem(flowing, [label, text])
+            item = QTreeWidgetItem(flowing, [_with_format(label, fmt), text])
             if stale:
                 item.setForeground(1, QColor("#b4392c"))
             else:
@@ -191,9 +196,9 @@ class LinkDetailsDialog(QDialog):
 
     def _add_outputs(self, title, outputs, version):
         root = QTreeWidgetItem(self._tree, [f"{title} ({len(outputs)})", ""])
-        for name, latest in outputs:
+        for name, latest, fmt in outputs:
             text, stale = _version_state(version, latest)
-            item = QTreeWidgetItem(root, [name, text])
+            item = QTreeWidgetItem(root, [_with_format(name, fmt), text])
             item.setForeground(1, QColor("#b4392c") if stale
                                else QColor("#1c7a44"))
 

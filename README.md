@@ -423,18 +423,36 @@ même `fx`…). Pratique pour ne garder que les dépendances entre étapes
 différentes.
 
 **Mute formats** — liste **dynamique** : une case par format de fichier
-réellement présent dans le graphe affiché (`abc`, `mb`, `ma`, `bgeo`, `ass`,
-`exr`…). Cocher un format coupe **tous les liens qui transportent ce type de
-fichier**, donc les connexions venant des scènes qui l'exportent. La liste se
-reconstruit à chaque *Graph* ; les cases déjà cochées le restent si leur format
-existe encore. Si la table `assets` n'expose aucun format exploitable, la
-section n'apparaît pas.
+réellement présent dans le graphe affiché (`abc`, `bgeo.sc`, `hda`, `usd`,
+`vdb`, `rs`, `obj`, `ass`, `exr`…). Cocher un format coupe **tous les liens qui
+transportent ce type de fichier**, donc les connexions venant des scènes qui
+l'exportent. La liste se reconstruit à chaque *Graph* ; les cases déjà cochées
+le restent si leur format existe encore. Si la table `assets` n'expose aucun
+format exploitable, la section n'apparaît pas.
+
+> La liste couvre **tous les assets du graphe**, y compris ceux qu'une scène
+> publie sans consommateur (les outputs de la scène interrogée, par exemple) —
+> sinon un format n'apparaissant sur aucun lien manquait à l'appel.
 
 > Le format est lu dans une colonne dédiée (`format`, `ext`, `extension`,
 > `file_format`, `filetype`…) ; à défaut, il est extrait de **l'extension**
 > d'une colonne de chemin ou de nom de fichier (`path`, `file`, `filename`,
-> `output`, `name`). Aucun format n'est inventé : sans source exploitable la
-> liste reste vide.
+> `output`, `name`). Les extensions **composées** sont préservées
+> (`smoke.v005.bgeo.sc` → `bgeo.sc`, `geo.gz`…) au lieu d'être réduites à leur
+> suffixe de compression. Aucun format n'est inventé : un chemin, une phrase ou
+> un simple `1001-1240` sont rejetés, et sans source exploitable la liste reste
+> vide.
+
+**Formats dans les info-bulles** — survoler une **scène** liste ses *inputs* et
+ses *outputs* avec le format entre crochets et l'état de version
+(`077_02000_shading · chaise_shd [rs] (v002)`,
+`quasimodo [abc] (v012 → v014)`). Survoler un **lien** liste les assets qui y
+transitent, avec le même détail ; la fenêtre ouverte au clic les reprend aussi.
+Un format inconnu n'affiche pas de crochets vides.
+
+> Le rectangle de la **scène interrogée** ne liste pas ses propres outputs (le
+> graphe ne remonte que ses dépendances) : son info-bulle n'affiche donc que
+> ses inputs. Ses formats sont bien pris en compte par *Mute formats*.
 
 Les trois réglages se **cumulent** avec les clics droit, chacun se levant
 indépendamment, et n'écrivent **jamais** dans la base.
@@ -454,7 +472,8 @@ indépendamment, et n'écrivent **jamais** dans la base.
 | **Clic droit** sur un lien      | **Désactive/réactive** le lien (temporaire) |
 | **Glisser** un nœud             | Réordonner (déplacement **horizontal** seul)|
 | **Glisser la poignée** de ligne (à gauche) | **Réordonner les lignes** de tâche (vertical) |
-| **Survol** d'un nœud            | Dépendances directes + graphiste + inputs/outputs avec versions `(vXXX)` ou `(vXXX → vYYY)` |
+| **Survol** d'un nœud            | Dépendances directes + graphiste + inputs/outputs avec **format** `[abc]` et versions `(vXXX)` ou `(vXXX → vYYY)` |
+| **Survol** d'un lien            | Scènes reliées + assets qui y transitent, avec format et versions |
 | **Molette**                     | Zoom (ancré sous le curseur)               |
 | **Bouton du milieu** + glisser  | Déplacement (pan)                          |
 | **Recentrer** (`Ctrl+0`)        | Ajuste le zoom pour tout voir              |

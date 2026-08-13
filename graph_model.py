@@ -405,11 +405,17 @@ def build_graph(assets, scenes, binds, input_name):
             if pid not in seen_assets:
                 stack.append(pid)
 
-    # Regroupement des assets par scène productrice.
+    # Regroupement des assets par scène productrice, et format publié par
+    # chaque output (pour les info-bulles et la liste « Mute formats »).
     group_node_names = defaultdict(set)
+    group_formats = defaultdict(dict)
     for aid in seen_assets:
         a = assets[aid]
-        group_node_names[_asset_scene_key(a)].add(a["node_name"])
+        key = _asset_scene_key(a)
+        group_node_names[key].add(a["node_name"])
+        fmt = a.get("format", "")
+        if fmt:
+            group_formats[key].setdefault(a["node_name"], fmt)
 
     result = GraphResult()
 
@@ -461,7 +467,7 @@ def build_graph(assets, scenes, binds, input_name):
 
     # Détails par output + inputs + graphiste(s), et titre (nom de table).
     for node in result.nodes.values():
-        _compute_outputs(node, asset_stream_max)
+        _compute_outputs(node, asset_stream_max, group_formats.get(node.key))
         _compute_inputs(node, node_inputs.get(node.key, ()),
                         assets, asset_stream_max)
         _fill_scene_meta(node, scenes_by_iv, scenes)
@@ -491,8 +497,15 @@ def build_graph(assets, scenes, binds, input_name):
             if fmt)
         for edge, aids in result.edge_assets.items()
     }
-    result.formats = sorted({fmt for formats in result.edge_formats.values()
-                             for fmt in formats})
+    # La liste proposée couvre TOUS les assets du graphe : ceux qui transitent
+    # par un lien, mais aussi ceux que ses scènes publient sans consommateur —
+    # les outputs de la scène interrogée, par exemple, manquaient sinon.
+    formats = {assets[aid].get("format", "") for aid in seen_assets}
+    node_keys = set(result.nodes)
+    for a in assets.values():
+        if _asset_scene_key(a) in node_keys:
+            formats.add(a.get("format", ""))
+    result.formats = sorted(formats - {""})
 
     # Statut par propagation à trois états :
     #   stale (rouge)     = importe au moins un asset supplanté ;
@@ -510,12 +523,13 @@ def build_graph(assets, scenes, binds, input_name):
     return result
 
 
-def _compute_outputs(node, asset_stream_max):
-    """Renseigne node.outputs = [(name, latest_version)] pour chaque output.
+def _compute_outputs(node, asset_stream_max, node_formats=None):
+    """Renseigne node.outputs = [(name, latest_version, format)].
 
     ``latest_version`` est la dernière version EXPORTÉE de cet asset (flux
     ``project, entity, task, av, node_name``). L'output est à jour si
     ``node.version >= latest_version`` (comparaison au niveau de l'asset).
+    Le format (abc, bgeo.sc, hda…) est celui du fichier publié, '' si inconnu.
     """
     outputs = []
     for name in node.node_names:
@@ -524,7 +538,7 @@ def _compute_outputs(node, asset_stream_max):
              node.av_name, name))
         if latest is None:
             latest = node.version
-        outputs.append((name, latest))
+        outputs.append((name, latest, (node_formats or {}).get(name, "")))
     node.outputs = outputs
 
 
@@ -539,7 +553,7 @@ def _input_label(asset):
 
 
 def _compute_inputs(node, input_ids, assets, asset_stream_max):
-    """Renseigne node.inputs = [(label, version, latest_version)].
+    """Renseigne node.inputs = [(label, version, latest_version, format)].
 
     Chaque asset importé est comparé à sa dernière version exportée.
     """
@@ -551,7 +565,8 @@ def _compute_inputs(node, input_ids, assets, asset_stream_max):
         stream = (a["project"], a["entity_name"], a["task_name"],
                   a["av_name"], a["node_name"])
         latest = asset_stream_max.get(stream, a["version"])
-        seen[(_input_label(a), a["version"], latest)] = None
+        seen[(_input_label(a), a["version"], latest,
+              a.get("format", ""))] = None
     node.inputs = sorted(seen, key=lambda t: t[0])
 
 
@@ -633,7 +648,7 @@ def _input_is_stale(asset, asset_stream_max):
 
 
 def _asset_details(asset_ids, assets, asset_stream_max):
-    """[(label, version, latest_version)] trié, pour un ensemble d'assets."""
+    """[(label, version, latest_version, format)] trié, pour des assets."""
     rows = set()
     for aid in asset_ids:
         a = assets.get(aid)
@@ -642,7 +657,8 @@ def _asset_details(asset_ids, assets, asset_stream_max):
         stream = (a["project"], a["entity_name"], a["task_name"],
                   a["av_name"], a["node_name"])
         rows.add((_input_label(a), a["version"],
-                  asset_stream_max.get(stream, a["version"])))
+                  asset_stream_max.get(stream, a["version"]),
+                  a.get("format", "")))
     return sorted(rows, key=lambda t: t[0])
 
 

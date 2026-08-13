@@ -106,6 +106,18 @@ def _vfmt(version):
     return f"v{version:03d}" if version is not None else "v?"
 
 
+def _fmt_tag(fmt):
+    """Suffixe de format pour les info-bulles : « abc » -> ' [abc]'."""
+    return f" [{fmt}]" if fmt else ""
+
+
+def _vstate(current, latest):
+    """« (vXXX) » si à jour, « (vXXX → vYYY) » si une version plus récente existe."""
+    if current is not None and latest is not None and current < latest:
+        return f"({_vfmt(current)} → {_vfmt(latest)})"
+    return f"({_vfmt(current)})"
+
+
 def _fit_output_line(name, suffix, fm, max_w):
     """Assemble « nom + suffixe » en gardant le suffixe (versions) visible."""
     if fm.horizontalAdvance(name + suffix) <= max_w:
@@ -171,6 +183,13 @@ class EdgeItem(QGraphicsPathItem):
         self.refresh_appearance()
         self.update_path()
 
+    def details(self):
+        """[(label, version, dernière version, format)] transitant par le lien."""
+        result = getattr(self._view, "_result", None) if self._view else None
+        if result is None:
+            return []
+        return result.edge_details.get(self.key, [])
+
     # --- couleur du lien ----------------------------------------------------
     def _base_color(self):
         """Couleur du lien : d'où vient l'obsolescence de l'enfant ?
@@ -221,12 +240,17 @@ class EdgeItem(QGraphicsPathItem):
         self.setPen(pen)
         carried = ("carries an outdated asset" if self.carries_stale
                    else "all assets up to date")
-        self.setToolTip(
-            f"{self.src.node.display_name}\n→ {self.dst.node.display_name}\n"
-            f"This link: {carried}\n"
-            + ("DISABLED — right-click to re-enable"
-               if self.disabled else
-               "Click: details · Right-click: disable this link"))
+        lines = [self.src.node.display_name,
+                 f"→ {self.dst.node.display_name}",
+                 f"This link: {carried}"]
+        details = self.details()
+        if details:
+            lines.append(f"Assets through this link ({len(details)}):")
+            for label, cur, latest, fmt in details:
+                lines.append(f"  {label}{_fmt_tag(fmt)} {_vstate(cur, latest)}")
+        lines.append("DISABLED — right-click to re-enable" if self.disabled
+                     else "Click: details · Right-click: disable this link")
+        self.setToolTip("\n".join(lines))
         self.update()
 
     def set_state(self, state):
@@ -363,12 +387,7 @@ class SceneNodeItem(QGraphicsObject):
         self._relayout()
 
     # --- géométrie / contenu ------------------------------------------------
-    @staticmethod
-    def _version_state(current, latest):
-        """« (vXXX) » si à jour, « (vXXX → vYYY) » si périmé."""
-        if (current is not None and latest is not None and current < latest):
-            return f"({_vfmt(current)} → {_vfmt(latest)})"
-        return f"({_vfmt(current)})"
+    _version_state = staticmethod(_vstate)
 
     def _tooltip_text(self):
         n = self.node
@@ -377,13 +396,15 @@ class SceneNodeItem(QGraphicsObject):
                      + (", ".join(n.artists) if n.artists else "unknown"))
         if n.inputs:
             parts.append("Inputs:")
-            for label, cur, latest in n.inputs:
-                parts.append(f"  {label} {self._version_state(cur, latest)}")
+            for label, cur, latest, fmt in n.inputs:
+                parts.append(f"  {label}{_fmt_tag(fmt)} "
+                             f"{self._version_state(cur, latest)}")
         if n.outputs:
             parts.append("Outputs:")
-            for name, latest in n.outputs:
+            for name, latest, fmt in n.outputs:
                 parts.append(
-                    f"  {name} {self._version_state(n.version, latest)}")
+                    f"  {name}{_fmt_tag(fmt)} "
+                    f"{self._version_state(n.version, latest)}")
         parts.append({
             "ok": "up to date",
             "stale": "outdated (stale input)",
@@ -418,7 +439,7 @@ class SceneNodeItem(QGraphicsObject):
         #   à jour  -> vert :  "name (v001)"
         #   périmé  -> rouge : "name ⚠ (v001 → v002)"
         self._output_lines = []
-        for name, latest in n.outputs:
+        for name, latest, _fmt in n.outputs:
             v = n.version
             if v is not None and latest is not None and v < latest:
                 suffix = f"  ⚠ ({_vfmt(v)} → {_vfmt(latest)})"
