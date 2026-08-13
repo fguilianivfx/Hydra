@@ -383,6 +383,9 @@ class SceneNodeItem(QGraphicsObject):
         self._output_lines = []     # list[(texte, couleur)] : un asset/ligne
         # libellé d'output -> scènes qui l'importent (rempli par la vue)
         self._consumers = {}
+        # outputs dont tous les liens consommateurs sont coupés : ils ne
+        # circulent plus, on ne les liste donc plus.
+        self._hidden_outputs = set()
 
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
@@ -397,6 +400,25 @@ class SceneNodeItem(QGraphicsObject):
         self._consumers = dict(consumers)
         self.setToolTip(self._tooltip_text())
 
+    def set_hidden_outputs(self, labels):
+        """Masque les outputs qui n'alimentent plus aucun lien actif.
+
+        Renvoie True si la liste a changé — le rectangle change alors de
+        hauteur et la vue doit se réagencer.
+        """
+        labels = set(labels)
+        if labels == self._hidden_outputs:
+            return False
+        self._hidden_outputs = labels
+        self._relayout()
+        self.setToolTip(self._tooltip_text())
+        return True
+
+    def visible_outputs(self):
+        """Outputs réellement listés (hors liens coupés)."""
+        return [o for o in self.node.outputs
+                if o[0] not in self._hidden_outputs]
+
     # --- géométrie / contenu ------------------------------------------------
     _version_state = staticmethod(_vstate)
 
@@ -410,9 +432,10 @@ class SceneNodeItem(QGraphicsObject):
             for label, cur, latest, fmt in n.inputs:
                 parts.append(f"  {label}{_fmt_tag(fmt)} "
                              f"{self._version_state(cur, latest)}")
-        if n.outputs:
+        shown = self.visible_outputs()
+        if shown:
             parts.append("Outputs:")
-            for name, latest, fmt in n.outputs:
+            for name, latest, fmt in shown:
                 line = (f"  {name}{_fmt_tag(fmt)} "
                         f"{self._version_state(n.version, latest)}")
                 # Qui importe cet output ? Une ligne n'est jamais là par
@@ -455,7 +478,7 @@ class SceneNodeItem(QGraphicsObject):
         #   à jour  -> vert :  "name (v001)"
         #   périmé  -> rouge : "name ⚠ (v001 → v002)"
         self._output_lines = []
-        for name, latest, _fmt in n.outputs:
+        for name, latest, _fmt in self.visible_outputs():
             v = n.version
             if v is not None and latest is not None and v < latest:
                 suffix = f"  ⚠ ({_vfmt(v)} → {_vfmt(latest)})"
@@ -957,6 +980,27 @@ class DependencyGraphView(QGraphicsView):
         """Liens réellement inactifs : clic droit **plus** filtres."""
         return self._disabled_edges | self._filtered_edges()
 
+    def _refresh_output_visibility(self):
+        """Retire des rectangles les outputs qui ne circulent plus.
+
+        Un output dont **tous** les liens consommateurs sont coupés (clic
+        droit, « Mute same task connections », filtre de format) n'alimente
+        plus rien : le lister laisserait croire qu'il compte encore, avec son
+        éventuel « ⚠ ». Un output sans consommateur connu reste affiché.
+        """
+        if self._result is None:
+            return False
+        disabled = self._effective_disabled()
+        hidden = defaultdict(set)
+        for (key, label), children in self._result.output_consumers.items():
+            if all((key, child) in disabled for child in children):
+                hidden[key].add(label)
+        changed = False
+        for key, item in self._node_items.items():
+            if item.set_hidden_outputs(hidden.get(key, ())):
+                changed = True
+        return changed
+
     def _apply_status_recompute(self):
         """Recalcule les statuts (rien n'est écrit en base) et rafraîchit."""
         if self._result is None:
@@ -969,6 +1013,7 @@ class DependencyGraphView(QGraphicsView):
             item.refresh_status()
         for edge in self._edges:
             edge.refresh_appearance()
+        self._refresh_output_visibility()
         self._update_visibility()
 
     # --- visibilité des nœuds coupés du graphe ------------------------------

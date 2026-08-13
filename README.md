@@ -486,6 +486,14 @@ Un format inconnu n'affiche pas de crochets vides.
 Les trois réglages se **cumulent** avec les clics droit, chacun se levant
 indépendamment, et n'écrivent **jamais** dans la base.
 
+**Couper un lien retire aussi son contenu du rectangle.** Un output dont
+**tous** les liens consommateurs sont coupés n'alimente plus rien : il
+disparaît de la boîte (qui rétrécit d'autant) et de son info-bulle, au lieu de
+rester là avec un « ⚠ » sans objet. Cocher *Mute same task connections*
+nettoie ainsi les bibliothèques chaînées d'une version à l'autre : le `matlib`
+de la v048, importé par la seule v049, s'efface — tandis que celui de la v049,
+importé par le plan, reste. Lever le filtre rétablit tout à l'identique.
+
 **Redraw layout** — bouton **sous le graphe**, à droite. Masquer des nœuds **ne déplace
 jamais** les autres : ils restent où ils étaient, ce qui laisse des colonnes
 vides (masquer 150 nœuds sur 170 étalait les rescapés sur toute la largeur
