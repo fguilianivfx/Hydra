@@ -282,8 +282,7 @@ class MainWindow(QMainWindow):
 
         lay.addSpacing(10)
         lay.addWidget(self._bold_label("Display"))
-        self.chk_show_disconnected = QCheckBox(
-            "Show nodes cut off by disabled links")
+        self.chk_show_disconnected = QCheckBox("Show disable branches")
         self.chk_show_disconnected.setChecked(True)
         self.chk_show_disconnected.setToolTip(
             "When a link is disabled, the parents it fed may no longer reach "
@@ -292,6 +291,29 @@ class MainWindow(QMainWindow):
             lambda on: self.view.set_show_disconnected(on))
         lay.addWidget(self.chk_show_disconnected)
 
+        self.chk_mute_same_task = QCheckBox("Mute same task connections")
+        self.chk_mute_same_task.setToolTip(
+            "Disable every link between two scenes carrying the same task "
+            "(lighting → lighting…). Temporary: nothing is written to the "
+            "database.")
+        self.chk_mute_same_task.toggled.connect(
+            lambda on: self.view.set_mute_same_task(on))
+        lay.addWidget(self.chk_mute_same_task)
+
+        # Liste dynamique des formats rencontrés dans le graphe : une case par
+        # format, qui coupe les liens apportant ce type de fichier.
+        self.lbl_formats = QLabel("Mute formats")
+        self.lbl_formats.setStyleSheet("color:#8a93a0;")
+        self.lbl_formats.setVisible(False)
+        lay.addWidget(self.lbl_formats)
+        self.formats_box = QWidget()
+        self._formats_layout = QVBoxLayout(self.formats_box)
+        self._formats_layout.setContentsMargins(12, 0, 0, 0)
+        self._formats_layout.setSpacing(2)
+        self._format_boxes = {}
+        self.formats_box.setVisible(False)
+        lay.addWidget(self.formats_box)
+
         self.lbl_hidden = QLabel("")
         self.lbl_hidden.setStyleSheet("color:#8a93a0;")
         self.lbl_hidden.setWordWrap(True)
@@ -299,6 +321,46 @@ class MainWindow(QMainWindow):
 
         lay.addStretch(1)
         return tool
+
+    def _rebuild_format_boxes(self, formats):
+        """Reconstruit la liste des formats après un nouveau graphe.
+
+        Les cases déjà cochées le restent si leur format existe encore, pour
+        ne pas perdre un filtre en re-graphant une scène voisine.
+        """
+        kept = {fmt for fmt, box in self._format_boxes.items()
+                if box.isChecked()} & set(formats)
+        while self._formats_layout.count():
+            item = self._formats_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._format_boxes = {}
+        for fmt in formats:
+            box = QCheckBox(fmt)
+            box.setChecked(fmt in kept)
+            box.setToolTip(
+                f"Disable the links carrying a \"{fmt}\" file, i.e. cut the "
+                "connections to the scenes exporting that format.")
+            box.toggled.connect(lambda _on: self._on_formats_toggled())
+            self._formats_layout.addWidget(box)
+            self._format_boxes[fmt] = box
+        has_any = bool(formats)
+        self.lbl_formats.setVisible(has_any)
+        self.formats_box.setVisible(has_any)
+        self.view.set_muted_formats(kept)
+
+    def _on_formats_toggled(self):
+        self.view.set_muted_formats(
+            {fmt for fmt, box in self._format_boxes.items() if box.isChecked()})
+
+    def _on_link_filters_cleared(self):
+        """« Enable all links » a aussi levé les filtres : on décoche."""
+        for widget in [self.chk_mute_same_task] + list(
+                self._format_boxes.values()):
+            widget.blockSignals(True)
+            widget.setChecked(False)
+            widget.blockSignals(False)
 
     # --- outil 2 : contrôler les scènes d'un graphiste ----------------------
     def _build_artist_tool(self):
@@ -453,6 +515,8 @@ class MainWindow(QMainWindow):
         self.view.edge_selected.connect(self._on_edge_selected)
         self.view.links_changed.connect(self._on_links_changed)
         self.view.hidden_nodes_changed.connect(self._on_hidden_nodes_changed)
+        self.view.formats_changed.connect(self._rebuild_format_boxes)
+        self.view.filters_cleared.connect(self._on_link_filters_cleared)
         # Minimum volontairement bas : la partie gauche peut ainsi être
         # élargie très largement en prenant sur le graphe.
         self.view.setMinimumWidth(80)

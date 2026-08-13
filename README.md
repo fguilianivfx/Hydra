@@ -287,7 +287,10 @@ ignorées proprement.
 Colonnes **requises** (les autres sont ignorées) :
 
 * **`assets.csv`** : `id, project, entity_name, task_name, av_name,
-  node_name, version`
+  node_name, version` — colonnes facultatives : **date** de publication
+  (`date`, `created_at`… ou détectée), **graphiste** (`artist`, `author`…) et
+  **format** (`format`, `ext`… ou l'extension d'un chemin), qui alimente la
+  liste *Mute formats*.
 * **`scenes.csv`** : `id, name, project, entity_name, task_name, av_name,
   version` — le titre du rectangle reprend `name` + version ; une colonne
   **graphiste** facultative (`artist`, `user`, `created_by`…) alimente le survol.
@@ -376,19 +379,43 @@ lequel est en cause, et lesquels ne font que transmettre.
 Un **clic droit** sur un lien le désactive : les statuts sont **recalculés**
 comme si cette dépendance n'existait pas — un nœud dont le seul input périmé
 passait par ce lien redevient vert. Un second clic droit le réactive
-(« Enable all links » dans la barre d'outils les rétablit tous).
+(« Enable all links » dans la barre d'outils rétablit **tout**, y compris les
+filtres ci-dessous, et décoche leurs cases).
 
 > Ces désactivations sont **temporaires et en mémoire uniquement** : **rien
 > n'est écrit dans la base de données**, et tout est perdu dès qu'un nouveau
 > graphe est affiché.
 
-**Masquer les nœuds coupés** — la case *« Show nodes cut off by disabled
-links »* (panneau de gauche) masque les nœuds qui n'ont plus **aucun chemin
+Le panneau **Display** (à gauche) propose trois réglages :
+
+**Show disable branches** — masque les nœuds qui n'ont plus **aucun chemin
 actif** jusqu'à la scène interrogée, c'est-à-dire ceux qui n'y sont plus reliés
 que par des liens désactivés. Le masquage est **récursif** (un parent qui
 n'alimentait que des nœuds masqués disparaît aussi), les lignes de tâche
 devenues vides sont escamotées, et la scène interrogée reste toujours visible.
 Le nombre de nœuds masqués est rappelé sous la case.
+
+**Mute same task connections** — coupe d'un coup tous les liens entre deux
+scènes portant la **même tâche** (`lighting → lighting`, deux variantes d'un
+même `fx`…). Pratique pour ne garder que les dépendances entre étapes
+différentes.
+
+**Mute formats** — liste **dynamique** : une case par format de fichier
+réellement présent dans le graphe affiché (`abc`, `mb`, `ma`, `bgeo`, `ass`,
+`exr`…). Cocher un format coupe **tous les liens qui transportent ce type de
+fichier**, donc les connexions venant des scènes qui l'exportent. La liste se
+reconstruit à chaque *Graph* ; les cases déjà cochées le restent si leur format
+existe encore. Si la table `assets` n'expose aucun format exploitable, la
+section n'apparaît pas.
+
+> Le format est lu dans une colonne dédiée (`format`, `ext`, `extension`,
+> `file_format`, `filetype`…) ; à défaut, il est extrait de **l'extension**
+> d'une colonne de chemin ou de nom de fichier (`path`, `file`, `filename`,
+> `output`, `name`). Aucun format n'est inventé : sans source exploitable la
+> liste reste vide.
+
+Les trois réglages se **cumulent** avec les clics droit, chacun se levant
+indépendamment, et n'écrivent **jamais** dans la base.
 
 > Nuance : le nœud à l'origine d'une republication (ex. un `modeling` dont un
 > `v007` existe alors que le graphe tire le `v005`) reste **vert** — ses

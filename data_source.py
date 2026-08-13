@@ -85,11 +85,13 @@ def norm_str(value):
     return s
 
 
-def _asset_from_mapping(get, date_column=""):
+def _asset_from_mapping(get, date_column="", format_spec=("", "")):
     """Construit un enregistrement asset depuis un accès par nom de colonne.
 
     ``date_column`` est la colonne de date retenue pour la table courante (voir
     ``resolve_date_column``) ; à défaut on retombe sur les noms connus.
+    ``format_spec`` est le couple (colonne, mode) rendu par
+    ``resolve_format_column``.
     """
     return {
         "project": norm_str(get("project")),
@@ -99,11 +101,13 @@ def _asset_from_mapping(get, date_column=""):
         "node_name": norm_str(get("node_name")),
         "version": to_int(get("version")),
         # Colonnes facultatives : libellé de repli quand node_name est vide,
-        # puis auteur et date de publication (affichés au survol).
+        # puis auteur, date de publication (affichés au survol) et format du
+        # fichier exporté (abc, mb, exr…).
         "name": norm_str(get("name")),
         "artist": _pick(get, _ARTIST_COLUMNS),
         "date": (norm_str(get(date_column)) if date_column
                  else _pick(get, _DATE_COLUMNS)),
+        "format": _asset_format(get, format_spec),
     }
 
 
@@ -189,28 +193,89 @@ def resolve_date_column(columns, samples=()):
                 "")
 
 
+# Colonnes portant directement le format d'un asset (« abc », « exr »…).
+_FORMAT_COLUMNS = ("format", "ext", "extension", "file_format", "filetype",
+                   "file_type", "output_format", "fmt")
+# Colonnes portant un chemin ou un nom de fichier, dont on tire l'extension.
+_PATH_COLUMNS = ("path", "file", "filename", "file_path", "filepath",
+                 "output", "output_path", "name")
+_EXT_RE = re.compile(r"\.([A-Za-z][A-Za-z0-9]{0,5})$")
+
+
+def norm_format(value):
+    """Normalise un format d'asset : « .ABC » -> « abc » ('' si invalide)."""
+    text = norm_str(value).lower().lstrip(".")
+    if not text or len(text) > 8 or not text.isalnum():
+        return ""
+    return text
+
+
+def _extension_of(value):
+    """Extension d'un chemin ou d'un nom de fichier ('' si aucune)."""
+    match = _EXT_RE.search(norm_str(value))
+    return match.group(1).lower() if match else ""
+
+
+def resolve_format_column(columns, samples=()):
+    """(colonne, mode) portant le format d'un asset.
+
+    ``mode`` vaut ``"value"`` quand la colonne contient déjà le format
+    (« abc »), ou ``"ext"`` quand elle contient un chemin / nom de fichier dont
+    il faut extraire l'extension. Renvoie ``("", "")`` si rien n'est
+    exploitable — la liste de formats reste alors vide plutôt que fantaisiste.
+    """
+    names = [norm_str(c) for c in columns if norm_str(c)]
+    by_lower = {}
+    for name in names:
+        by_lower.setdefault(name.lower(), name)
+
+    for known in _FORMAT_COLUMNS:
+        name = by_lower.get(known)
+        if name and (not samples
+                     or any(norm_format(get(name)) for get in samples)):
+            return name, "value"
+    for known in _PATH_COLUMNS:
+        name = by_lower.get(known)
+        if name and samples and any(_extension_of(get(name))
+                                    for get in samples):
+            return name, "ext"
+    return "", ""
+
+
+def _asset_format(get, spec):
+    column, mode = spec or ("", "")
+    if not column:
+        return ""
+    return (_extension_of(get(column)) if mode == "ext"
+            else norm_format(get(column)))
+
+
 # Dernier schéma lu pour la table « assets » : permet d'expliquer dans
 # l'interface pourquoi aucune date n'a pu être trouvée.
-_LAST_ASSET_SCHEMA = {"columns": (), "date_column": ""}
+_LAST_ASSET_SCHEMA = {"columns": (), "date_column": "", "format_column": ""}
 
 
 def asset_schema():
-    """Colonnes vues au dernier chargement + colonne de date retenue."""
+    """Colonnes vues au dernier chargement + colonnes date/format retenues."""
     return dict(_LAST_ASSET_SCHEMA)
 
 
-def _remember_asset_schema(columns, date_column):
+def _remember_asset_schema(columns, date_column, format_spec=("", "")):
     _LAST_ASSET_SCHEMA["columns"] = tuple(
         norm_str(c) for c in columns if norm_str(c))
     _LAST_ASSET_SCHEMA["date_column"] = date_column
+    _LAST_ASSET_SCHEMA["format_column"] = format_spec[0]
     return date_column
 
 
-def _asset_date_column(rows):
-    """Résout (et mémorise) la colonne de date depuis les lignes chargées."""
+def _asset_columns_spec(rows):
+    """Résout (et mémorise) les colonnes date et format des lignes chargées."""
     columns = list(rows[0].keys()) if rows else []
-    return _remember_asset_schema(
-        columns, resolve_date_column(columns, [r.get for r in rows[:200]]))
+    samples = [r.get for r in rows[:200]]
+    date_column = resolve_date_column(columns, samples)
+    format_spec = resolve_format_column(columns, samples)
+    _remember_asset_schema(columns, date_column, format_spec)
+    return date_column, format_spec
 
 
 def _pick(get, names):
@@ -437,12 +502,13 @@ def load_from_mysql(config):
             # SELECT * : récupère aussi les colonnes facultatives (name…).
             cursor.execute("SELECT * FROM assets")
             asset_rows = cursor.fetchall()
-            date_column = _asset_date_column(asset_rows)
+            date_column, format_spec = _asset_columns_spec(asset_rows)
             for row in asset_rows:
                 aid = to_int(row.get("id"))
                 if aid is None:
                     continue
-                assets[aid] = _asset_from_mapping(row.get, date_column)
+                assets[aid] = _asset_from_mapping(row.get, date_column,
+                                                  format_spec)
 
             # SELECT * : récupère aussi une éventuelle colonne « graphiste »
             # (artist/user/created_by…) sans échouer si elle est absente.
@@ -510,12 +576,12 @@ def load_from_csv(paths):
     assets, scenes, binds = {}, {}, []
 
     asset_rows = _read_csv_rows(paths["assets"], "assets")
-    date_column = _asset_date_column(asset_rows)
+    date_column, format_spec = _asset_columns_spec(asset_rows)
     for row in asset_rows:
         aid = to_int(row.get("id"))
         if aid is None:
             continue
-        assets[aid] = _asset_from_mapping(row.get, date_column)
+        assets[aid] = _asset_from_mapping(row.get, date_column, format_spec)
 
     for row in _read_csv_rows(paths["scenes"], "scenes"):
         sid = to_int(row.get("id"))
@@ -644,9 +710,9 @@ def load_from_sql_dump(path):
 
     current = None   # table cible en cours, ou None
     colmap = None
-    # Le dump est lu en streaming : la colonne de date est résolue sur la
-    # première ligne d'assets rencontrée, puis réutilisée.
-    date_state = {"column": None}
+    # Le dump est lu en streaming : les colonnes date et format sont résolues
+    # sur la première ligne d'assets rencontrée, puis réutilisées.
+    date_state = {"column": None, "format": ("", "")}
 
     def store(vals):
         """Range un tuple de valeurs dans la bonne table selon ``current``."""
@@ -661,9 +727,12 @@ def load_from_sql_dump(path):
             if aid is None:
                 raise ValueError("id asset manquant")
             if date_state["column"] is None:
+                date_state["format"] = resolve_format_column(colmap, [get])
                 date_state["column"] = _remember_asset_schema(
-                    colmap, resolve_date_column(colmap, [get]))
-            assets[aid] = _asset_from_mapping(get, date_state["column"])
+                    colmap, resolve_date_column(colmap, [get]),
+                    date_state["format"])
+            assets[aid] = _asset_from_mapping(get, date_state["column"],
+                                              date_state["format"])
         elif current == "scenes":
             sid = to_int(get("id"))
             if sid is None:

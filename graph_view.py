@@ -646,6 +646,11 @@ class DependencyGraphView(QGraphicsView):
     links_changed = Signal(int)
     # Émis quand des nœuds sont masqués/réaffichés (nb de nœuds masqués).
     hidden_nodes_changed = Signal(int)
+    # Émis quand les filtres de liens (même tâche, formats) sont remis à zéro,
+    # pour que l'interface décoche ses cases.
+    filters_cleared = Signal()
+    # Émis après un nouveau graphe : liste des formats d'assets rencontrés.
+    formats_changed = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -676,6 +681,9 @@ class DependencyGraphView(QGraphicsView):
         # Liens désactivés temporairement : en mémoire uniquement, remis à
         # zéro à chaque nouveau graphe, jamais écrits en base.
         self._disabled_edges = set()
+        # Filtres de liens (mêmes garanties : temporaires, en mémoire).
+        self._mute_same_task = False
+        self._muted_formats = set()
         # Afficher les nœuds devenus inaccessibles (reliés uniquement par des
         # liens désactivés) ?
         self._show_disconnected = True
@@ -702,6 +710,8 @@ class DependencyGraphView(QGraphicsView):
         """Affiche un graph_model.GraphResult."""
         self.clear_graph()
         if not result.nodes:
+            self.formats_changed.emit([])
+            self.links_changed.emit(0)
             return
         self._result = result
 
@@ -763,6 +773,13 @@ class DependencyGraphView(QGraphicsView):
         self._reflow(record_initial=True)
         self.reset_view()
 
+        # 6) les filtres actifs s'appliquent au nouveau graphe (les formats
+        # absents de celui-ci sont simplement sans effet).
+        self.formats_changed.emit(list(result.formats))
+        if self._mute_same_task or self._muted_formats:
+            self._apply_status_recompute()
+        self.links_changed.emit(len(self._effective_disabled()))
+
     # --- liens : sélection et désactivation temporaire ----------------------
     def select_edge(self, edge):
         """Sélectionne un lien et publie son détail (inputs/outputs)."""
@@ -800,34 +817,91 @@ class DependencyGraphView(QGraphicsView):
 
     def toggle_edge_disabled(self, edge):
         """Active/désactive un lien (en mémoire) et recalcule les statuts."""
-        edge.set_disabled(not edge.disabled)
-        if edge.disabled:
-            self._disabled_edges.add(edge.key)
-        else:
+        if edge.key in self._disabled_edges:
             self._disabled_edges.discard(edge.key)
+        else:
+            self._disabled_edges.add(edge.key)
         self._apply_status_recompute()
         if edge is self._selected_edge:
             self.edge_selected.emit(self.edge_info(edge))
-        self.links_changed.emit(len(self._disabled_edges))
+        self.links_changed.emit(len(self._effective_disabled()))
 
     def enable_all_links(self):
-        """Réactive tous les liens désactivés."""
-        if not self._disabled_edges:
+        """Réactive tous les liens : clic droit **et** filtres."""
+        if not self._effective_disabled():
             return
-        for edge in self._edges:
-            edge.set_disabled(False)
         self._disabled_edges.clear()
+        had_filters = self._mute_same_task or self._muted_formats
+        self._mute_same_task = False
+        self._muted_formats = set()
         self._apply_status_recompute()
+        if had_filters:
+            self.filters_cleared.emit()
         self.links_changed.emit(0)
 
     def disabled_link_count(self):
-        return len(self._disabled_edges)
+        return len(self._effective_disabled())
+
+    # --- filtres de liens ---------------------------------------------------
+    def set_mute_same_task(self, on):
+        """Coupe les liens entre deux scènes portant la **même tâche**."""
+        on = bool(on)
+        if on == self._mute_same_task:
+            return
+        self._mute_same_task = on
+        self._apply_status_recompute()
+        self.links_changed.emit(len(self._effective_disabled()))
+
+    def mute_same_task(self):
+        return self._mute_same_task
+
+    def set_muted_formats(self, formats):
+        """Coupe les liens transportant l'un de ces formats (abc, exr…)."""
+        wanted = {str(f).lower() for f in formats}
+        if wanted == self._muted_formats:
+            return
+        self._muted_formats = wanted
+        self._apply_status_recompute()
+        self.links_changed.emit(len(self._effective_disabled()))
+
+    def muted_formats(self):
+        return set(self._muted_formats)
+
+    def graph_formats(self):
+        """Formats d'assets présents dans le graphe courant."""
+        return list(self._result.formats) if self._result else []
+
+    def _filtered_edges(self):
+        """Liens coupés par les filtres (même tâche, formats)."""
+        if self._result is None:
+            return set()
+        cut = set()
+        if self._mute_same_task:
+            for top, bottom in self._result.edges:
+                src = self._result.nodes.get(top)
+                dst = self._result.nodes.get(bottom)
+                if src is None or dst is None:
+                    continue
+                if gm.canon_task(src.task_name) == gm.canon_task(dst.task_name):
+                    cut.add((top, bottom))
+        if self._muted_formats:
+            for edge, formats in self._result.edge_formats.items():
+                if formats & self._muted_formats:
+                    cut.add(edge)
+        return cut
+
+    def _effective_disabled(self):
+        """Liens réellement inactifs : clic droit **plus** filtres."""
+        return self._disabled_edges | self._filtered_edges()
 
     def _apply_status_recompute(self):
         """Recalcule les statuts (rien n'est écrit en base) et rafraîchit."""
         if self._result is None:
             return
-        gm.recompute_status(self._result, self._disabled_edges)
+        disabled = self._effective_disabled()
+        gm.recompute_status(self._result, disabled)
+        for edge in self._edges:
+            edge.set_disabled(edge.key in disabled)
         for item in self._node_items.values():
             item.refresh_status()
         for edge in self._edges:

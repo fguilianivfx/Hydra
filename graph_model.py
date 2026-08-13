@@ -146,7 +146,7 @@ class GraphResult:
     __slots__ = ("nodes", "edges", "start_key", "row_tasks", "row_levels",
                  "separator_after_row", "stats",
                  "edge_assets", "edge_details", "stale_asset_ids",
-                 "stale_edges")
+                 "stale_edges", "edge_formats", "formats")
 
     def __init__(self):
         self.nodes = {}            # key -> SceneNode
@@ -164,6 +164,10 @@ class GraphResult:
         self.stale_asset_ids = frozenset()
         # Liens dont au moins un asset transporté est supplanté.
         self.stale_edges = frozenset()
+        # Formats des fichiers transitant par chaque lien (abc, mb, exr…) et
+        # liste triée de ceux présents dans le graphe.
+        self.edge_formats = {}     # (top, bottom) -> frozenset[str]
+        self.formats = []
 
 
 # ---------------------------------------------------------------------------
@@ -434,6 +438,17 @@ def build_graph(assets, scenes, binds, input_name):
     result.stale_edges = frozenset(
         edge for edge, aids in result.edge_assets.items()
         if aids & result.stale_asset_ids)
+
+    # Formats transitant par chaque lien : permet de couper d'un coup toutes
+    # les connexions apportant un type de fichier donné.
+    result.edge_formats = {
+        edge: frozenset(
+            fmt for fmt in (assets[aid].get("format", "") for aid in aids)
+            if fmt)
+        for edge, aids in result.edge_assets.items()
+    }
+    result.formats = sorted({fmt for formats in result.edge_formats.values()
+                             for fmt in formats})
 
     # Statut par propagation à trois états :
     #   stale (rouge)     = importe au moins un asset supplanté ;
