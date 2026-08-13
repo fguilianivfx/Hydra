@@ -282,6 +282,28 @@ ignorées proprement.
 
 ---
 
+## Outputs techniques ignorés
+
+Certaines scènes publient, **dans la même task**, un fichier Nuke (`.nk`)
+nommé **`houslapcomp`** à côté du fichier Houdini : c'est un *slap comp*
+automatique, seul le fichier Houdini est pertinent. Il est donc **écarté
+partout** — il ne crée ni nœud, ni output, ni lien, n'apparaît ni dans les
+imports ni dans les assets disponibles, ne compte pas dans le nombre d'imports
+vérifiés, ne rend jamais une scène périmée (même si son propre numéro de
+version grimpe), et son format n'alimente pas la liste *Mute formats*.
+
+La reconnaissance porte sur `node_name` puis `name`, en **sous-chaîne** et sans
+tenir compte de la casse (`fx_houslapcomp_main` est reconnu). La liste est
+modifiable sans recompiler, via la variable d'environnement
+**`DEDALE_IGNORED_NODES`** (séparateurs : virgules ou espaces) :
+
+```bat
+set DEDALE_IGNORED_NODES=houslapcomp,previz
+set DEDALE_IGNORED_NODES=            :: ne rien ignorer du tout
+```
+
+---
+
 ## Formats CSV attendus
 
 Colonnes **requises** (les autres sont ignorées) :

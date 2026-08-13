@@ -16,12 +16,53 @@ IMPORTANT : la table ``assets_parents`` est volontairement ignorée
 
 from __future__ import annotations
 
+import os
 import re
 from collections import defaultdict
 
 
 class SceneResolutionError(Exception):
     """Le nom de scène saisi n'a pu être résolu vers une scène connue."""
+
+
+# Outputs techniques à ignorer partout : le « slap comp » Nuke (.nk) généré
+# automatiquement à côté du fichier Houdini, dans la même task — seul le
+# fichier Houdini est pertinent. Extensible sans recompiler via la variable
+# d'environnement DEDALE_IGNORED_NODES (séparateurs : virgules ou espaces).
+_DEFAULT_IGNORED_NODES = ("houslapcomp",)
+
+
+def _ignored_nodes():
+    raw = os.environ.get("DEDALE_IGNORED_NODES")
+    if raw is None:
+        return _DEFAULT_IGNORED_NODES
+    parts = [p.strip().lower() for chunk in raw.split(",")
+             for p in chunk.split()]
+    return tuple(p for p in parts if p)
+
+
+IGNORED_NODE_NAMES = _ignored_nodes()
+
+
+def is_ignored_asset(asset):
+    """Vrai si cet output technique ne doit jamais être pris en compte.
+
+    La comparaison porte sur ``node_name`` puis ``name``, en sous-chaîne et
+    sans tenir compte de la casse : le nom reste reconnu qu'il soit préfixé ou
+    suffixé (``fx_houslapcomp``, ``houslapcomp_main``).
+    """
+    if not IGNORED_NODE_NAMES:
+        return False
+    haystack = (f"{asset.get('node_name', '')} "
+                f"{asset.get('name', '')}").lower()
+    return any(token in haystack for token in IGNORED_NODE_NAMES)
+
+
+def relevant_assets(assets):
+    """Les assets moins les outputs techniques ignorés (voir ci-dessus)."""
+    if not IGNORED_NODE_NAMES:
+        return assets
+    return {aid: a for aid, a in assets.items() if not is_ignored_asset(a)}
 
 
 # Ordre des lignes de tâche, du haut (sources) vers le bas (compositing).
@@ -325,6 +366,9 @@ def _fallback_by_name(scenes, version, prefix, stem):
 
 def build_graph(assets, scenes, binds, input_name):
     """Construit le GraphResult complet à partir des données et du nom saisi."""
+    # Les outputs techniques (slap comp Nuke…) sont écartés d'emblée : ils ne
+    # créent ainsi ni nœud, ni lien, ni obsolescence.
+    assets = relevant_assets(assets)
     (scene_active_assets, scenes_by_iv,
      scene_stream_max, asset_stream_max) = _build_indexes(assets, scenes, binds)
 

@@ -423,6 +423,10 @@ def check_artist_scenes(assets, scenes, binds, artist, project,
     """
     report = ArtistReport()
     report.tasks = list(tasks)
+    # Mêmes exclusions que le graphe : un output technique (slap comp Nuke
+    # posé à côté du fichier Houdini) ne doit ni être listé, ni rendre une
+    # scène obsolète.
+    assets = gm.relevant_assets(assets)
 
     prefix = (project or "").strip().lower()
     report.artists, report.match_mode = resolve_authors(scenes, artist, project)
