@@ -306,8 +306,9 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.chk_mute_same_task)
 
         # Liste dynamique des formats rencontrés dans le graphe : une case par
-        # format, qui coupe les liens apportant ce type de fichier.
-        self.lbl_formats = QLabel("Mute formats")
+        # format, cochée par défaut. La décocher coupe les liens apportant ce
+        # type de fichier.
+        self.lbl_formats = QLabel("Show formats")
         self.lbl_formats.setStyleSheet("color:#8a93a0;")
         self.lbl_formats.setVisible(False)
         lay.addWidget(self.lbl_formats)
@@ -330,11 +331,12 @@ class MainWindow(QMainWindow):
     def _rebuild_format_boxes(self, formats):
         """Reconstruit la liste des formats après un nouveau graphe.
 
-        Les cases déjà cochées le restent si leur format existe encore, pour
-        ne pas perdre un filtre en re-graphant une scène voisine.
+        Tout est coché par défaut (rien n'est masqué) ; les formats que l'on
+        avait décochés le restent s'ils existent encore, pour ne pas perdre un
+        filtre en re-graphant une scène voisine.
         """
-        kept = {fmt for fmt, box in self._format_boxes.items()
-                if box.isChecked()} & set(formats)
+        hidden = {fmt for fmt, box in self._format_boxes.items()
+                  if not box.isChecked()} & set(formats)
         while self._formats_layout.count():
             item = self._formats_layout.takeAt(0)
             widget = item.widget()
@@ -343,29 +345,36 @@ class MainWindow(QMainWindow):
         self._format_boxes = {}
         for fmt in formats:
             box = QCheckBox(fmt)
-            box.setChecked(fmt in kept)
+            box.setChecked(fmt not in hidden)
             box.setToolTip(
-                f"Disable the links carrying a \"{fmt}\" file, i.e. cut the "
-                "connections to the scenes exporting that format.")
+                f"Uncheck to hide the \"{fmt}\" files: the links carrying "
+                "them are cut, along with the connections to the scenes "
+                "exporting that format.")
             box.toggled.connect(lambda _on: self._on_formats_toggled())
             self._formats_layout.addWidget(box)
             self._format_boxes[fmt] = box
         has_any = bool(formats)
         self.lbl_formats.setVisible(has_any)
         self.formats_box.setVisible(has_any)
-        self.view.set_muted_formats(kept)
+        self.view.set_shown_formats(set(formats) - hidden)
 
     def _on_formats_toggled(self):
-        self.view.set_muted_formats(
+        self.view.set_shown_formats(
             {fmt for fmt, box in self._format_boxes.items() if box.isChecked()})
 
     def _on_link_filters_cleared(self):
-        """« Enable all links » a aussi levé les filtres : on décoche."""
-        for widget in [self.chk_mute_same_task] + list(
-                self._format_boxes.values()):
-            widget.blockSignals(True)
-            widget.setChecked(False)
-            widget.blockSignals(False)
+        """« Enable all links » a aussi levé les filtres : on remet à zéro.
+
+        Les formats sont **recochés** (tout est affiché), la case « même
+        tâche » est décochée.
+        """
+        self.chk_mute_same_task.blockSignals(True)
+        self.chk_mute_same_task.setChecked(False)
+        self.chk_mute_same_task.blockSignals(False)
+        for box in self._format_boxes.values():
+            box.blockSignals(True)
+            box.setChecked(True)
+            box.blockSignals(False)
 
     # --- outil 2 : contrôler les scènes d'un graphiste ----------------------
     def _build_artist_tool(self):

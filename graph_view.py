@@ -882,7 +882,11 @@ class DependencyGraphView(QGraphicsView):
         return self._mute_same_task
 
     def set_muted_formats(self, formats):
-        """Coupe les liens transportant l'un de ces formats (abc, exr…)."""
+        """Coupe les liens transportant l'un de ces formats (abc, exr…).
+
+        Primitive interne : l'interface expose le **complément**, plus parlant
+        (« Show formats »), via ``set_shown_formats``.
+        """
         wanted = {str(f).lower() for f in formats}
         if wanted == self._muted_formats:
             return
@@ -892,6 +896,18 @@ class DependencyGraphView(QGraphicsView):
 
     def muted_formats(self):
         return set(self._muted_formats)
+
+    def set_shown_formats(self, formats):
+        """Ne garde que les liens transportant l'un de ces formats.
+
+        Un format du graphe absent de la liste voit ses liens coupés ; un
+        format inconnu du graphe est simplement sans effet.
+        """
+        shown = {str(f).lower() for f in formats}
+        self.set_muted_formats(set(self.graph_formats()) - shown)
+
+    def shown_formats(self):
+        return set(self.graph_formats()) - self._muted_formats
 
     def graph_formats(self):
         """Formats d'assets présents dans le graphe courant."""

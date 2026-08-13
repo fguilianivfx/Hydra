@@ -290,7 +290,7 @@ automatique, seul le fichier Houdini est pertinent. Il est donc **écarté
 partout** — il ne crée ni nœud, ni output, ni lien, n'apparaît ni dans les
 imports ni dans les assets disponibles, ne compte pas dans le nombre d'imports
 vérifiés, ne rend jamais une scène périmée (même si son propre numéro de
-version grimpe), et son format n'alimente pas la liste *Mute formats*.
+version grimpe), et son format n'alimente pas la liste *Show formats*.
 
 Il se présente sous **deux formes**, toutes deux écartées :
 
@@ -324,7 +324,7 @@ Colonnes **requises** (les autres sont ignorées) :
   node_name, version` — colonnes facultatives : **date** de publication
   (`date`, `created_at`… ou détectée), **graphiste** (`artist`, `author`…) et
   **format** (`format`, `ext`… ou l'extension d'un chemin), qui alimente la
-  liste *Mute formats*.
+  liste *Show formats*.
 * **`scenes.csv`** : `id, name, project, entity_name, task_name, av_name,
   version` — le titre du rectangle reprend `name` + version ; une colonne
   **graphiste** facultative (`artist`, `user`, `created_by`…) alimente le survol.
@@ -414,7 +414,8 @@ Un **clic droit** sur un lien le désactive : les statuts sont **recalculés**
 comme si cette dépendance n'existait pas — un nœud dont le seul input périmé
 passait par ce lien redevient vert. Un second clic droit le réactive
 (« Enable all links » dans la barre d'outils rétablit **tout**, y compris les
-filtres ci-dessous, et décoche leurs cases).
+filtres ci-dessous : *Mute same task connections* est décochée et **tous les
+formats sont recochés**).
 
 > Ces désactivations sont **temporaires et en mémoire uniquement** : **rien
 > n'est écrit dans la base de données**, et tout est perdu dès qu'un nouveau
@@ -434,13 +435,14 @@ scènes portant la **même tâche** (`lighting → lighting`, deux variantes d'u
 même `fx`…). Pratique pour ne garder que les dépendances entre étapes
 différentes.
 
-**Mute formats** — liste **dynamique** : une case par format de fichier
+**Show formats** — liste **dynamique** : une case par format de fichier
 réellement présent dans le graphe affiché (`abc`, `bgeo.sc`, `hda`, `usd`,
-`vdb`, `rs`, `obj`, `ass`, `exr`…). Cocher un format coupe **tous les liens qui
-transportent ce type de fichier**, donc les connexions venant des scènes qui
-l'exportent. La liste se reconstruit à chaque *Graph* ; les cases déjà cochées
-le restent si leur format existe encore. Si la table `assets` n'expose aucun
-format exploitable, la section n'apparaît pas.
+`vdb`, `rs`, `obj`, `ass`, `exr`…), **toutes cochées par défaut**. **Décocher**
+un format coupe **tous les liens qui transportent ce type de fichier**, donc
+les connexions venant des scènes qui l'exportent. La liste se reconstruit à
+chaque *Graph* ; les cases **décochées** le restent si leur format existe
+encore. Si la table `assets` n'expose aucun format exploitable, la section
+n'apparaît pas.
 
 > La liste couvre **tous les assets du graphe**, y compris ceux qu'une scène
 > publie sans consommateur (les outputs de la scène interrogée, par exemple) —
@@ -464,7 +466,7 @@ Un format inconnu n'affiche pas de crochets vides.
 
 > Le rectangle de la **scène interrogée** ne liste pas ses propres outputs (le
 > graphe ne remonte que ses dépendances) : son info-bulle n'affiche donc que
-> ses inputs. Ses formats sont bien pris en compte par *Mute formats*.
+> ses inputs. Ses formats sont bien pris en compte par *Show formats*.
 
 Les trois réglages se **cumulent** avec les clics droit, chacun se levant
 indépendamment, et n'écrivent **jamais** dans la base.
