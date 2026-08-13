@@ -983,17 +983,23 @@ class DependencyGraphView(QGraphicsView):
     def _refresh_output_visibility(self):
         """Retire des rectangles les outputs qui ne circulent plus.
 
-        Un output dont **tous** les liens consommateurs sont coupés (clic
-        droit, « Mute same task connections », filtre de format) n'alimente
-        plus rien : le lister laisserait croire qu'il compte encore, avec son
-        éventuel « ⚠ ». Un output sans consommateur connu reste affiché.
+        Un consommateur ne « compte » que si le lien qui lui apporte l'output
+        est actif ET s'il a encore un chemin actif jusqu'à la scène
+        interrogée. Couper une branche plus bas suffit donc : le ``matlib``
+        importé par une seule scène elle-même coupée du graphe disparaît de la
+        boîte, même si le lien direct qui le transporte n'est pas désactivé.
+        Un output sans consommateur connu reste affiché, et sans aucun lien
+        coupé rien ne change (tout nœud du graphe est atteignable par
+        construction).
         """
         if self._result is None:
             return False
         disabled = self._effective_disabled()
+        reachable = self._reachable_keys()
         hidden = defaultdict(set)
         for (key, label), children in self._result.output_consumers.items():
-            if all((key, child) in disabled for child in children):
+            if all((key, child) in disabled or child not in reachable
+                   for child in children):
                 hidden[key].add(label)
         changed = False
         for key, item in self._node_items.items():

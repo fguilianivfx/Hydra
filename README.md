@@ -486,13 +486,17 @@ Un format inconnu n'affiche pas de crochets vides.
 Les trois réglages se **cumulent** avec les clics droit, chacun se levant
 indépendamment, et n'écrivent **jamais** dans la base.
 
-**Couper un lien retire aussi son contenu du rectangle.** Un output dont
-**tous** les liens consommateurs sont coupés n'alimente plus rien : il
-disparaît de la boîte (qui rétrécit d'autant) et de son info-bulle, au lieu de
-rester là avec un « ⚠ » sans objet. Cocher *Mute same task connections*
-nettoie ainsi les bibliothèques chaînées d'une version à l'autre : le `matlib`
-de la v048, importé par la seule v049, s'efface — tandis que celui de la v049,
-importé par le plan, reste. Lever le filtre rétablit tout à l'identique.
+**Couper un lien retire aussi son contenu des rectangles.** Un output ne
+reste listé que s'il alimente encore la scène interrogée : il faut qu'au moins
+un consommateur y soit relié par un lien **actif** et garde lui-même un
+**chemin actif** jusqu'à elle. Couper une branche **en aval** suffit donc : le
+`matlib` de la v048, importé par la seule v049, s'efface dès que la v049 est
+coupée du graphe — que ce soit par *Mute same task connections*, un filtre de
+format ou un clic droit plus bas — tandis que celui que le plan importe reste.
+La boîte rétrécit d'autant, son info-bulle suit, et l'affichage ou non des
+branches coupées (*Show disable branches*) ne change rien au contenu des
+boîtes. Un output sans consommateur connu n'est jamais masqué, et tout
+rétablir rend les boîtes à l'identique.
 
 **Redraw layout** — bouton **sous le graphe**, à droite. Masquer des nœuds **ne déplace
 jamais** les autres : ils restent où ils étaient, ce qui laisse des colonnes
