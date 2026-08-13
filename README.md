@@ -498,7 +498,7 @@ branches coupées (*Show disable branches*) ne change rien au contenu des
 boîtes. Un output sans consommateur connu n'est jamais masqué, et tout
 rétablir rend les boîtes à l'identique.
 
-**Redraw layout** — bouton **sous le graphe**, à droite. Masquer des nœuds **ne déplace
+**Redraw layout** — bouton **sous le graphe**, en tête de la ligne de légende. Masquer des nœuds **ne déplace
 jamais** les autres : ils restent où ils étaient, ce qui laisse des colonnes
 vides (masquer 150 nœuds sur 170 étalait les rescapés sur toute la largeur
 d'origine). Ce bouton **resserre le graphe à la demande** : les colonnes

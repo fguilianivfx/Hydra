@@ -543,19 +543,15 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.view, 1)
 
         # Accolé au graphe : les options d'affichage masquent des nœuds sans
-        # bouger les autres, ce bouton resserre l'ensemble à la demande.
-        redraw_row = QHBoxLayout()
-        redraw_row.setContentsMargins(0, 0, 0, 0)
+        # bouger les autres, ce bouton resserre l'ensemble à la demande. Il
+        # partage la ligne de la légende, juste sous le graphe.
         self.btn_redraw = QPushButton("Redraw layout")
         self.btn_redraw.setToolTip(
             "Pack the visible nodes back together, dropping the columns "
             "freed by the hidden ones, and refit the view.")
         self.btn_redraw.clicked.connect(self._on_redraw_layout)
-        redraw_row.addWidget(self.btn_redraw)
-        redraw_row.addStretch(1)
-        lay.addLayout(redraw_row)
 
-        lay.addWidget(self._build_legend())
+        lay.addWidget(self._build_legend(self.btn_redraw))
         return panel
 
     @staticmethod
@@ -716,7 +712,8 @@ class MainWindow(QMainWindow):
             lambda: self.view.enable_all_links())
         tb.addAction(self.act_enable_links)
 
-    def _build_legend(self):
+    def _build_legend(self, leading=None):
+        """Légende des couleurs ; ``leading`` ouvre la ligne (bouton Redraw)."""
         w = QWidget()
         outer = QVBoxLayout(w)
         outer.setContentsMargins(2, 0, 2, 0)
@@ -724,6 +721,8 @@ class MainWindow(QMainWindow):
         lay = QHBoxLayout()
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(14)
+        if leading is not None:
+            lay.addWidget(leading)
 
         def swatch(color, text, border=False):
             box = QFrame()
