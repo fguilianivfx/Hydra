@@ -292,10 +292,22 @@ imports ni dans les assets disponibles, ne compte pas dans le nombre d'imports
 vérifiés, ne rend jamais une scène périmée (même si son propre numéro de
 version grimpe), et son format n'alimente pas la liste *Mute formats*.
 
-La reconnaissance porte sur `node_name` puis `name`, en **sous-chaîne** et sans
-tenir compte de la casse (`fx_houslapcomp_main` est reconnu). La liste est
-modifiable sans recompiler, via la variable d'environnement
-**`DEDALE_IGNORED_NODES`** (séparateurs : virgules ou espaces) :
+Il se présente sous **deux formes**, toutes deux écartées :
+
+* un **output** au milieu des autres (`node_name` = `houslapcomp`) ;
+* une **variante de scène entière** — `qua_077_04900_lighting_main_houslapcomp`
+  à côté de `qua_077_04900_lighting_main` (`av_name` = `main_houslapcomp`).
+  Cette scène ne figure plus dans la liste du graphiste ni dans le graphe, et
+  **tout ce qu'elle publie** est ignoré, même quand ses outputs portent des
+  noms parfaitement normaux (`render`…).
+
+La reconnaissance porte sur `node_name`, `name` et `av_name` pour les assets,
+sur `av_name` et `name` pour les scènes, en **sous-chaîne** et sans tenir compte
+de la casse (`fx_houslapcomp_main` est reconnu). Saisir explicitement le nom
+d'une variante ignorée dans « Scene to graph » la graphe quand même : on
+n'écarte que ce qui n'a pas été demandé. La liste est modifiable sans
+recompiler, via la variable d'environnement **`DEDALE_IGNORED_NODES`**
+(séparateurs : virgules ou espaces) :
 
 ```bat
 set DEDALE_IGNORED_NODES=houslapcomp,previz

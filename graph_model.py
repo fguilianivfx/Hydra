@@ -44,18 +44,38 @@ def _ignored_nodes():
 IGNORED_NODE_NAMES = _ignored_nodes()
 
 
-def is_ignored_asset(asset):
-    """Vrai si cet output technique ne doit jamais être pris en compte.
+def _ignored_match(*values):
+    """Un de ces champs contient-il un nom ignoré ?
 
-    La comparaison porte sur ``node_name`` puis ``name``, en sous-chaîne et
-    sans tenir compte de la casse : le nom reste reconnu qu'il soit préfixé ou
-    suffixé (``fx_houslapcomp``, ``houslapcomp_main``).
+    Comparaison en **sous-chaîne**, sans tenir compte de la casse : le nom
+    reste reconnu qu'il soit préfixé ou suffixé (``fx_houslapcomp``,
+    ``main_houslapcomp``).
     """
     if not IGNORED_NODE_NAMES:
         return False
-    haystack = (f"{asset.get('node_name', '')} "
-                f"{asset.get('name', '')}").lower()
+    haystack = " ".join(str(v or "") for v in values).lower()
     return any(token in haystack for token in IGNORED_NODE_NAMES)
+
+
+def is_ignored_asset(asset):
+    """Vrai si cet output technique ne doit jamais être pris en compte.
+
+    On regarde ``node_name`` et ``name``, mais aussi ``av_name`` : le slap
+    comp est parfois une **variante** entière (``lighting_main_houslapcomp``),
+    auquel cas tout ce qu'elle publie est à écarter.
+    """
+    return _ignored_match(asset.get("node_name"), asset.get("name"),
+                          asset.get("av_name"))
+
+
+def is_ignored_scene(scene):
+    """Vrai si cette scène est un doublon technique (variante slap comp).
+
+    Le pendant de ``is_ignored_asset`` côté scènes : une variante
+    ``…_lighting_main_houslapcomp`` ne doit apparaître ni dans le graphe ni
+    dans la liste des scènes d'un graphiste.
+    """
+    return _ignored_match(scene.get("av_name"), scene.get("name"))
 
 
 def relevant_assets(assets):
@@ -63,6 +83,13 @@ def relevant_assets(assets):
     if not IGNORED_NODE_NAMES:
         return assets
     return {aid: a for aid, a in assets.items() if not is_ignored_asset(a)}
+
+
+def relevant_scenes(scenes):
+    """Les scènes moins les variantes techniques ignorées."""
+    if not IGNORED_NODE_NAMES:
+        return scenes
+    return {sid: s for sid, s in scenes.items() if not is_ignored_scene(s)}
 
 
 # Ordre des lignes de tâche, du haut (sources) vers le bas (compositing).
@@ -366,13 +393,17 @@ def _fallback_by_name(scenes, version, prefix, stem):
 
 def build_graph(assets, scenes, binds, input_name):
     """Construit le GraphResult complet à partir des données et du nom saisi."""
-    # Les outputs techniques (slap comp Nuke…) sont écartés d'emblée : ils ne
-    # créent ainsi ni nœud, ni lien, ni obsolescence.
+    # Les doublons techniques (slap comp Nuke…) sont écartés d'emblée : ils ne
+    # créent ainsi ni nœud, ni lien, ni obsolescence. La résolution du nom
+    # garde la table complète : si l'on saisit explicitement une variante
+    # ignorée, on veut quand même la grapher.
+    all_scenes = scenes
     assets = relevant_assets(assets)
+    scenes = relevant_scenes(scenes)
     (scene_active_assets, scenes_by_iv,
      scene_stream_max, asset_stream_max) = _build_indexes(assets, scenes, binds)
 
-    start_key, start_scene_ids, prefix = resolve_scene(input_name, scenes)
+    start_key, start_scene_ids, prefix = resolve_scene(input_name, all_scenes)
 
     # Assets directement bindés à S0 (union des binds actifs de ses lignes).
     s0_dep_assets = set()
