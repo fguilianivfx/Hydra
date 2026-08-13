@@ -171,7 +171,11 @@ possède une version publiée plus récente que celle bindée.
 * *Show assets up to date* (cochée par défaut) affiche ou masque les imports
   déjà à leur dernière version (les lignes vertes). Les masquer ne change ni
   le statut des scènes ni le compteur d'imports vérifiés ;
-* *Show assets not imported* liste en plus, **en bleu**, les assets publiés sur
+* *Show assets not imported*, avec son propre champ **Tasks** (`all` par
+  défaut) à sa droite : il restreint les **lignes bleues** à ces tasks, en plus
+  du *Filter assets tasks* global — pratique pour ne voir que ce qui manque
+  d'une task donnée sans toucher au reste de la liste. Cette option liste, **en
+  bleu**, les assets publiés sur
   le **plan** que la scène **n'importe pas**, **une seule ligne par asset, à sa
   dernière version publiée** — même quand plusieurs flux (variantes d'un même
   node) aboutissent au même libellé, seule la version la plus récente est
@@ -236,11 +240,17 @@ de l'environnement, ce qui évite de ressaisir des identifiants et de confondre
 nom de serveur et nom de base. Il affiche une seule ligne d'état, retestée à
 chaque fois qu'on ouvre l'onglet :
 
-* **Connection DB OK**, en vert, quand le serveur répond ;
+* **Connection DB OK**, en vert, quand le serveur répond — écrit **dès le
+  lancement** quand l'onglet MySQL est celui affiché, sans attendre un
+  changement d'onglet ;
 * **Connection Error**, en rouge, suivi du message du serveur *et* du détail des
   réglages (hôte, base, user, et l'**origine** de chacun : `$MYSQL_HOST`,
   `local_config.py` ou `default`). Ce détail n'apparaît **qu'en cas d'erreur**,
   et ne contient jamais le mot de passe.
+
+Le bloc se cale sur l'onglet **courant** : réduit à sa ligne d'état sur MySQL
+(deux fois plus court que l'onglet CSV), il ne s'agrandit que pour afficher un
+message d'erreur.
 
 Chaque paramètre est résolu dans cet ordre : **variable d'environnement** →
 **`local_config.py`** → **valeur par défaut**.

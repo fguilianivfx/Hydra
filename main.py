@@ -228,6 +228,11 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._restore_settings()
+        # État de la source affiché d'emblée : sur l'onglet MySQL, la connexion
+        # est testée au lancement plutôt qu'au premier changement d'onglet.
+        self._fit_source_tab()
+        if self.tabs.currentIndex() == 0:
+            self._refresh_mysql_status()
 
     # ------------------------------------------------------------------ UI --
     def _build_ui(self):
@@ -456,13 +461,28 @@ class MainWindow(QMainWindow):
             lambda _on: self._populate_artist_tree())
         lay.addWidget(self.chk_show_uptodate)
 
+        available_row = QHBoxLayout()
         self.chk_show_available = QCheckBox("Show assets not imported")
         self.chk_show_available.setToolTip(
             "Also list, in blue, the assets published on the shot that the "
             "scene does not import. They never make a scene outdated.")
         self.chk_show_available.toggled.connect(
             lambda _on: self._populate_artist_tree())
-        lay.addWidget(self.chk_show_available)
+        available_row.addWidget(self.chk_show_available)
+        # Filtre propre aux lignes bleues : on veut souvent voir « tout ce qui
+        # manque » d'une seule task sans restreindre le reste de la liste.
+        available_row.addWidget(QLabel("Tasks"))
+        self.avail_tasks_edit = QLineEdit(am.ALL_TASKS)
+        self.avail_tasks_edit.setPlaceholderText("all")
+        self.avail_tasks_edit.setToolTip(
+            "Restrict the assets not imported (blue lines) to these tasks: "
+            "\"all\", or one or more tasks separated by spaces or commas "
+            "(e.g. \"shading rigging\"). Applies on top of \"Filter assets "
+            "tasks\".")
+        self.avail_tasks_edit.textChanged.connect(
+            lambda _text: self._populate_artist_tree())
+        available_row.addWidget(self.avail_tasks_edit, 1)
+        lay.addLayout(available_row)
 
         # Filtre d'affichage des ASSETS listés : le contrôle porte toujours sur
         # toutes leurs tasks, ce champ ne fait que restreindre l'affichage — il
@@ -563,7 +583,7 @@ class MainWindow(QMainWindow):
         return label
 
     def _build_mysql_tab(self):
-        w = QWidget()
+        w = self._mysql_tab = QWidget()
         grid = QGridLayout(w)
         grid.setContentsMargins(10, 10, 10, 10)
         grid.setHorizontalSpacing(10)
@@ -590,12 +610,14 @@ class MainWindow(QMainWindow):
         self.my_status = QLabel("")
         self.my_status.setWordWrap(True)
         self.my_status.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        # Sans heightForWidth, le message d'erreur replié se fait tronquer par
-        # la hauteur calculée pour l'onglet.
+        # heightForWidth : le message d'erreur replié se ferait sinon tronquer.
+        # Vertical « Minimum » et non « MinimumExpanding » : la ligne « OK »
+        # tient sur sa hauteur au lieu de gonfler l'onglet.
         policy = self.my_status.sizePolicy()
-        policy.setVerticalPolicy(QSizePolicy.MinimumExpanding)
+        policy.setVerticalPolicy(QSizePolicy.Minimum)
         policy.setHeightForWidth(True)
         self.my_status.setSizePolicy(policy)
+        self.my_status.setAlignment(Qt.AlignTop)
         grid.addWidget(self.my_status, 0, 0, 1, 4)
 
         grid.setColumnStretch(1, 1)
@@ -626,12 +648,34 @@ class MainWindow(QMainWindow):
             self.my_status.setText(
                 f"Connection Error\n{message}\n{self._connection_details()}")
             self.my_status.setStyleSheet("color:#b4392c;")
+        # Le message tient sur une ligne (OK) ou sur plusieurs (erreur) : le
+        # bloc se réajuste dans les deux cas.
+        self._fit_source_tab()
         return ok
 
     def _on_source_tab_changed(self, index):
         """Le test de connexion n'a lieu qu'en arrivant sur l'onglet MySQL."""
+        self._fit_source_tab(index)
         if index == 0:
             self._refresh_mysql_status()
+
+    def _fit_source_tab(self, index=None):
+        """Ajuste la hauteur du bloc à l'onglet **courant**.
+
+        ``QTabWidget.sizeHint()`` se cale toujours sur la page la plus haute :
+        l'onglet MySQL, qui tient en une ligne, héritait de la hauteur du CSV
+        et laissait un grand vide. On plafonne donc explicitement.
+        """
+        if index is None:
+            index = self.tabs.currentIndex()
+        page = self.tabs.widget(index)
+        height = page.sizeHint().height()
+        if page is self._mysql_tab and self.my_status.text():
+            # Message replié : sa hauteur dépend de la largeur disponible.
+            width = self.my_status.width() or max(1, page.width() - 20)
+            height = max(height, self.my_status.heightForWidth(width) + 20)
+        self.tabs.setMaximumHeight(
+            height + self.tabs.tabBar().sizeHint().height() + 12)
 
     def _build_csv_tab(self):
         w = QWidget()
@@ -959,11 +1003,20 @@ class MainWindow(QMainWindow):
         wanted = {gm.canon_task(t) for t in wanted} if wanted else None
         show_uptodate = self.chk_show_uptodate.isChecked()
         show_available = self.chk_show_available.isChecked()
+        # Filtre supplémentaire, propre aux assets non importés (lignes bleues).
+        avail_wanted = am.parse_tasks(self.avail_tasks_edit.text())
+        avail_wanted = ({gm.canon_task(t) for t in avail_wanted}
+                        if avail_wanted else None)
 
         def keep(entry, row):
             return ((entry.scene_name, row.label) not in self._muted_assets
                     and (wanted is None
                          or gm.canon_task(row.task_name) in wanted))
+
+        def keep_available(entry, row):
+            return (keep(entry, row)
+                    and (avail_wanted is None
+                         or gm.canon_task(row.task_name) in avail_wanted))
 
         prepared = []
         for entry in report.entries:
@@ -976,7 +1029,8 @@ class MainWindow(QMainWindow):
             # Assets publiés sur le plan mais non importés : informatifs, ils
             # ne rendent jamais la scène obsolète (donc pas de « continue »
             # basé sur eux).
-            available_rows = ([r for r in entry.available if keep(entry, r)]
+            available_rows = ([r for r in entry.available
+                               if keep_available(entry, r)]
                               if show_available else [])
             if only_outdated and not outdated_rows:
                 continue
