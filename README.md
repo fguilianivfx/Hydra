@@ -12,11 +12,13 @@ scènes dont elle dépend, coloré selon leur fraîcheur.
   (v001 → v002)`). Un rectangle ne liste que les outputs qui **alimentent
   réellement** le graphe : beaucoup de scènes bindent aussi leurs *propres*
   publications, et ces auto-binds ne relient rien — les afficher revenait à
-  marquer « périmé » un asset que personne n'importe. Le nom affiché est le
-  **nom publié** (`assets.name`, ex. `dd_28_rues_armel_shd`) et non la clé de
-  flux `node_name` (`dd`), écrit sur ses **20 premiers caractères** suivis de
-  `...` s'il est tronqué
-  (`camera_layer_01_camera_abc` → `camera_layer_01_came...`) ;
+  marquer « périmé » un asset que personne n'importe. Le nom affiché vient de
+  `assets.name` (et non de la clé de flux `node_name`), **débarrassé du nom de
+  la scène productrice** que le titre donne déjà — avec ou sans le code du
+  show : `28_rues_armel_shading_bank_abcdef_matlib` → `matlib`,
+  `qua_28_rues_armel_shading_bank_abcdef_building_bank_abcdef` →
+  `building_bank_abcdef`. Il est écrit sur ses **20 premiers caractères**
+  suivis de `...` s'il est tronqué ;
 * une **ligne par type de tâche**, en deux niveaux (**asset** puis **shot**)
   séparés par un trait, le flux descendant ; lignes **réordonnables** en
   glissant leur poignée à gauche ; la **scène interrogée** reste tout en bas ;

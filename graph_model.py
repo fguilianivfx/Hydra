@@ -447,6 +447,15 @@ def build_graph(assets, scenes, binds, input_name):
     flowing_assets |= {aid for aid in s0_dep_assets
                        if _asset_scene_key(assets[aid]) != start_key}
 
+    # Noms bruts des scènes productrices, par identité+version : ils servent à
+    # retirer le préfixe de scène des noms d'assets publiés.
+    raw_scene_names = {}
+    for key, sids in scenes_by_iv.items():
+        names = [scenes[sid].get("name", "") for sid in sids
+                 if sid in scenes and scenes[sid].get("name")]
+        if names:
+            raw_scene_names[key] = names
+
     # Regroupement des assets par scène productrice, et format publié par
     # chaque output (pour les info-bulles et la liste « Mute formats »).
     group_node_names = defaultdict(set)
@@ -456,7 +465,8 @@ def build_graph(assets, scenes, binds, input_name):
         a = assets[aid]
         key = _asset_scene_key(a)
         group_node_names[key].add(a["node_name"])
-        group_labels[key].setdefault(a["node_name"], asset_display_name(a))
+        group_labels[key].setdefault(
+            a["node_name"], asset_display_name(a, raw_scene_names.get(key, ())))
         fmt = a.get("format", "")
         if fmt:
             group_formats[key].setdefault(a["node_name"], fmt)
@@ -514,13 +524,13 @@ def build_graph(assets, scenes, binds, input_name):
         _compute_outputs(node, asset_stream_max, group_formats.get(node.key),
                          group_labels.get(node.key))
         _compute_inputs(node, node_inputs.get(node.key, ()),
-                        assets, asset_stream_max)
+                        assets, asset_stream_max, raw_scene_names)
         _fill_scene_meta(node, scenes_by_iv, scenes)
         node.display_name = _display_title(node, prefix)
 
     # Détail des assets transitant par chaque lien (panneau de sélection).
     result.edge_details = {
-        edge: _asset_details(aids, assets, asset_stream_max)
+        edge: _asset_details(aids, assets, asset_stream_max, raw_scene_names)
         for edge, aids in result.edge_assets.items()
     }
     # Assets périmés : suffit pour recalculer les statuts (pas besoin de
@@ -591,27 +601,66 @@ def _compute_outputs(node, asset_stream_max, node_formats=None,
     node.outputs = sorted(outputs, key=lambda o: o[0])
 
 
-def asset_display_name(asset):
-    """Nom publié d'un asset : la colonne ``name``, sinon ``node_name``.
+def _scene_prefixes(asset, scene_names=()):
+    """Préfixes possibles du nom de la scène productrice d'un asset.
 
-    ``node_name`` n'est que la clé du flux (« dd ») ; c'est ``assets.name``
-    qui porte le nom réellement publié et importé
-    (« dd_28_rues_armel_shd »). On affiche donc celui-ci dès qu'il existe.
+    ``assets.name`` préfixe souvent l'asset par sa scène, avec ou sans le
+    code du show (``28_rues_armel_shading_bank_abcdef_matlib``,
+    ``qua_28_rues_armel_shading_bank_abcdef_building_bank_abcdef``). On
+    rassemble ici toutes les formes plausibles, de la plus longue à la plus
+    courte, pour n'en retirer qu'une.
     """
-    return (asset.get("name") or "").strip() or asset.get("node_name", "")
+    entity = asset.get("entity_name", "")
+    task = task_display(asset.get("task_name", ""))
+    av = asset.get("av_name", "")
+    project = asset.get("project", "")
+    variants = {f"{entity}_{task}"}
+    if av:
+        variants.add(f"{entity}_{task}_{av}")
+    if project:
+        variants |= {f"{project}_{v}" for v in list(variants)}
+    for raw in scene_names:
+        if not raw:
+            continue
+        variants.add(raw)
+        _head, _, rest = raw.partition("_")     # nom sans le code du show
+        if rest:
+            variants.add(rest)
+    return sorted(variants, key=len, reverse=True)
 
 
-def _input_label(asset):
+def asset_display_name(asset, scene_names=()):
+    """Nom d'un asset, **sans** le nom de sa scène productrice.
+
+    ``node_name`` n'est que la clé du flux ; c'est ``assets.name`` qui porte
+    le nom publié. Celui-ci répète souvent la scène en préfixe — inutile dans
+    un rectangle qui l'affiche déjà en titre — donc on le retire :
+    ``28_rues_armel_shading_bank_abcdef_matlib`` -> ``matlib``.
+    """
+    name = (asset.get("name") or "").strip()
+    if not name:
+        return asset.get("node_name", "")
+    low = name.lower()
+    for prefix in _scene_prefixes(asset, scene_names):
+        head = prefix.lower() + "_"
+        if low.startswith(head) and len(name) > len(head):
+            return name[len(head):]
+    return name
+
+
+def _input_label(asset, scene_names_by_key=None):
     """Libellé court d'un asset importé (pour le survol)."""
     taskdisp = task_display(asset["task_name"])
     base = f"{asset['entity_name']}_{taskdisp}"
     if asset["av_name"]:
         base += f"_{asset['av_name']}"
-    name = asset_display_name(asset)
+    raw = (scene_names_by_key or {}).get(_asset_scene_key(asset), ())
+    name = asset_display_name(asset, raw)
     return f"{base} · {name}" if name else base
 
 
-def _compute_inputs(node, input_ids, assets, asset_stream_max):
+def _compute_inputs(node, input_ids, assets, asset_stream_max,
+                    scene_names_by_key=None):
     """Renseigne node.inputs = [(label, version, latest_version, format)].
 
     Chaque asset importé est comparé à sa dernière version exportée.
@@ -624,7 +673,7 @@ def _compute_inputs(node, input_ids, assets, asset_stream_max):
         stream = (a["project"], a["entity_name"], a["task_name"],
                   a["av_name"], a["node_name"])
         latest = asset_stream_max.get(stream, a["version"])
-        seen[(_input_label(a), a["version"], latest,
+        seen[(_input_label(a, scene_names_by_key), a["version"], latest,
               a.get("format", ""))] = None
     node.inputs = sorted(seen, key=lambda t: t[0])
 
@@ -706,7 +755,8 @@ def _input_is_stale(asset, asset_stream_max):
     return latest is not None and asset["version"] < latest
 
 
-def _asset_details(asset_ids, assets, asset_stream_max):
+def _asset_details(asset_ids, assets, asset_stream_max,
+                   scene_names_by_key=None):
     """[(label, version, latest_version, format)] trié, pour des assets."""
     rows = set()
     for aid in asset_ids:
@@ -715,7 +765,7 @@ def _asset_details(asset_ids, assets, asset_stream_max):
             continue
         stream = (a["project"], a["entity_name"], a["task_name"],
                   a["av_name"], a["node_name"])
-        rows.add((_input_label(a), a["version"],
+        rows.add((_input_label(a, scene_names_by_key), a["version"],
                   asset_stream_max.get(stream, a["version"]),
                   a.get("format", "")))
     return sorted(rows, key=lambda t: t[0])

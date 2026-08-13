@@ -350,16 +350,17 @@ def _codes_by_project(scenes):
 
 
 def _asset_label(asset, scene_names=None, codes=None):
-    """Libellé d'un asset importé : « scène productrice · nom publié ».
+    """Libellé d'un asset importé : « scène productrice · nom de l'asset ».
 
-    Le nom affiché est celui de la colonne ``name`` (« dd_28_rues_armel_shd »),
-    pas la clé du flux ``node_name`` (« dd ») — c'est celui-là que le graphiste
-    voit dans sa scène.
+    Le nom affiché vient de la colonne ``name``, débarrassé du préfixe de la
+    scène productrice (déjà écrit juste avant) : ``matlib``, pas
+    ``28_rues_armel_shading_bank_abcdef_matlib``. ``node_name`` n'est que la
+    clé du flux et ne sert pas à l'affichage.
     """
-    node = gm.asset_display_name(asset) or "?"
     key = (asset["project"], asset["entity_name"], asset["task_name"],
            asset["av_name"])
     base = (scene_names or {}).get(key)
+    node = gm.asset_display_name(asset, [base] if base else ()) or "?"
     if not base:
         # Aucune scène productrice connue : on reconstruit l'identité, en
         # gardant le code court du show pour rester homogène avec le reste.
