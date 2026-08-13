@@ -711,6 +711,8 @@ class DependencyGraphView(QGraphicsView):
     filters_cleared = Signal()
     # Émis après un nouveau graphe : liste des formats d'assets rencontrés.
     formats_changed = Signal(object)
+    # Idem pour les tasks présentes, dans l'ordre des lignes (haut -> bas).
+    tasks_changed = Signal(object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -744,6 +746,7 @@ class DependencyGraphView(QGraphicsView):
         # Filtres de liens (mêmes garanties : temporaires, en mémoire).
         self._mute_same_task = False
         self._muted_formats = set()
+        self._muted_tasks = set()
         # Afficher les nœuds devenus inaccessibles (reliés uniquement par des
         # liens désactivés) ?
         self._show_disconnected = True
@@ -771,6 +774,7 @@ class DependencyGraphView(QGraphicsView):
         self.clear_graph()
         if not result.nodes:
             self.formats_changed.emit([])
+            self.tasks_changed.emit([])
             self.links_changed.emit(0)
             return
         self._result = result
@@ -846,7 +850,8 @@ class DependencyGraphView(QGraphicsView):
         # 7) les filtres actifs s'appliquent au nouveau graphe (les formats
         # absents de celui-ci sont simplement sans effet).
         self.formats_changed.emit(list(result.formats))
-        if self._mute_same_task or self._muted_formats:
+        self.tasks_changed.emit(self.graph_tasks())
+        if self._mute_same_task or self._muted_formats or self._muted_tasks:
             self._apply_status_recompute()
         self.links_changed.emit(len(self._effective_disabled()))
 
@@ -901,9 +906,11 @@ class DependencyGraphView(QGraphicsView):
         if not self._effective_disabled():
             return
         self._disabled_edges.clear()
-        had_filters = self._mute_same_task or self._muted_formats
+        had_filters = (self._mute_same_task or self._muted_formats
+                       or self._muted_tasks)
         self._mute_same_task = False
         self._muted_formats = set()
+        self._muted_tasks = set()
         self._apply_status_recompute()
         if had_filters:
             self.filters_cleared.emit()
@@ -957,6 +964,34 @@ class DependencyGraphView(QGraphicsView):
         """Formats d'assets présents dans le graphe courant."""
         return list(self._result.formats) if self._result else []
 
+    def set_muted_tasks(self, tasks):
+        """Coupe les liens partant des scènes de ces tasks."""
+        wanted = {gm.canon_task(t) for t in tasks}
+        if wanted == self._muted_tasks:
+            return
+        self._muted_tasks = wanted
+        self._apply_status_recompute()
+        self.links_changed.emit(len(self._effective_disabled()))
+
+    def muted_tasks(self):
+        return set(self._muted_tasks)
+
+    def set_shown_tasks(self, tasks):
+        """Ne garde que les liens partant des scènes de ces tasks."""
+        shown = {gm.canon_task(t) for t in tasks}
+        self.set_muted_tasks(
+            {gm.canon_task(t) for t in self.graph_tasks()} - shown)
+
+    def shown_tasks(self):
+        return {gm.canon_task(t) for t in self.graph_tasks()} - self._muted_tasks
+
+    def graph_tasks(self):
+        """Tasks du graphe courant, dans l'ordre des lignes (haut -> bas)."""
+        if self._result is None:
+            return []
+        rows = self._result.row_tasks
+        return [rows[r] for r in sorted(rows)]
+
     def _filtered_edges(self):
         """Liens coupés par les filtres (même tâche, formats)."""
         if self._result is None:
@@ -974,6 +1009,13 @@ class DependencyGraphView(QGraphicsView):
             for edge, formats in self._result.edge_formats.items():
                 if formats & self._muted_formats:
                     cut.add(edge)
+        if self._muted_tasks:
+            # La task d'une scène productrice masquée ne nourrit plus rien.
+            for top, bottom in self._result.edges:
+                src = self._result.nodes.get(top)
+                if src is not None and gm.canon_task(src.task_name) \
+                        in self._muted_tasks:
+                    cut.add((top, bottom))
         return cut
 
     def _effective_disabled(self):

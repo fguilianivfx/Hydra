@@ -18,7 +18,7 @@ import os
 import sys
 
 from PySide6.QtCore import QSettings, Qt
-from PySide6.QtGui import QAction, QColor, QIcon, QKeySequence
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -246,7 +246,6 @@ class MainWindow(QMainWindow):
         splitter.setSizes([440, 900])
         self.setCentralWidget(splitter)
 
-        self._build_toolbar()
         self.statusBar().showMessage("Ready.")
 
     def _build_left_panel(self):
@@ -325,6 +324,20 @@ class MainWindow(QMainWindow):
         self.formats_box.setVisible(False)
         lay.addWidget(self.formats_box)
 
+        # Même principe pour les tasks présentes dans le graphe : décocher une
+        # task coupe les liens qui en partent.
+        self.lbl_tasks = QLabel("Show tasks")
+        self.lbl_tasks.setStyleSheet("color:#8a93a0;")
+        self.lbl_tasks.setVisible(False)
+        lay.addWidget(self.lbl_tasks)
+        self.tasks_box = QWidget()
+        self._tasks_layout = QVBoxLayout(self.tasks_box)
+        self._tasks_layout.setContentsMargins(12, 0, 0, 0)
+        self._tasks_layout.setSpacing(2)
+        self._task_boxes = {}
+        self.tasks_box.setVisible(False)
+        lay.addWidget(self.tasks_box)
+
         self.lbl_hidden = QLabel("")
         self.lbl_hidden.setStyleSheet("color:#8a93a0;")
         self.lbl_hidden.setWordWrap(True)
@@ -368,6 +381,40 @@ class MainWindow(QMainWindow):
         self.view.redraw_layout()
         self.statusBar().showMessage("Layout redrawn on the visible nodes.")
 
+    def _rebuild_task_boxes(self, tasks):
+        """Liste des tasks du graphe, dans l'ordre des lignes (haut -> bas).
+
+        Tout est coché par défaut ; les tasks décochées le restent tant
+        qu'elles existent encore dans le graphe affiché.
+        """
+        hidden = {task for task, box in self._task_boxes.items()
+                  if not box.isChecked()} & set(tasks)
+        while self._tasks_layout.count():
+            item = self._tasks_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._task_boxes = {}
+        for task in tasks:
+            box = QCheckBox(task)
+            box.setChecked(task not in hidden)
+            box.setToolTip(
+                f"Uncheck to cut every link coming from a \"{task}\" scene: "
+                "that task stops feeding the graph, and the outputs it was "
+                "the only consumer of disappear too.")
+            box.toggled.connect(lambda _on: self._on_tasks_toggled())
+            self._tasks_layout.addWidget(box)
+            self._task_boxes[task] = box
+        has_any = bool(tasks)
+        self.lbl_tasks.setVisible(has_any)
+        self.tasks_box.setVisible(has_any)
+        self.view.set_shown_tasks(set(tasks) - hidden)
+
+    def _on_tasks_toggled(self):
+        self.view.set_shown_tasks(
+            {task for task, box in self._task_boxes.items()
+             if box.isChecked()})
+
     def _on_formats_toggled(self):
         self.view.set_shown_formats(
             {fmt for fmt, box in self._format_boxes.items() if box.isChecked()})
@@ -381,7 +428,8 @@ class MainWindow(QMainWindow):
         self.chk_mute_same_task.blockSignals(True)
         self.chk_mute_same_task.setChecked(False)
         self.chk_mute_same_task.blockSignals(False)
-        for box in self._format_boxes.values():
+        for box in list(self._format_boxes.values()) + \
+                list(self._task_boxes.values()):
             box.blockSignals(True)
             box.setChecked(True)
             box.blockSignals(False)
@@ -567,6 +615,7 @@ class MainWindow(QMainWindow):
         self.view.links_changed.connect(self._on_links_changed)
         self.view.hidden_nodes_changed.connect(self._on_hidden_nodes_changed)
         self.view.formats_changed.connect(self._rebuild_format_boxes)
+        self.view.tasks_changed.connect(self._rebuild_task_boxes)
         self.view.filters_cleared.connect(self._on_link_filters_cleared)
         # Minimum volontairement bas : la partie gauche peut ainsi être
         # élargie très largement en prenant sur le graphe.
@@ -746,27 +795,6 @@ class MainWindow(QMainWindow):
 
         grid.setColumnStretch(1, 1)
         return w
-
-    def _build_toolbar(self):
-        tb = self.addToolBar("View")
-        tb.setMovable(False)
-
-        act_recenter = QAction("Recenter", self)
-        act_recenter.setShortcut(QKeySequence("Ctrl+0"))
-        act_recenter.triggered.connect(lambda: self.view.reset_view())
-        tb.addAction(act_recenter)
-
-        act_reset = QAction("Reset layout", self)
-        act_reset.triggered.connect(lambda: self.view.reset_layout())
-        tb.addAction(act_reset)
-
-        self.act_enable_links = QAction("Enable all links", self)
-        self.act_enable_links.setToolTip(
-            "Re-enable every temporarily disabled link")
-        self.act_enable_links.setEnabled(False)
-        self.act_enable_links.triggered.connect(
-            lambda: self.view.enable_all_links())
-        tb.addAction(self.act_enable_links)
 
     def _build_legend(self, leading=None):
         """Légende des couleurs ; ``leading`` ouvre la ligne (bouton Redraw)."""
@@ -1342,7 +1370,6 @@ class MainWindow(QMainWindow):
 
     def _on_links_changed(self, disabled_count):
         """Un lien a été désactivé/réactivé (changement temporaire)."""
-        self.act_enable_links.setEnabled(disabled_count > 0)
         if disabled_count:
             self.statusBar().showMessage(
                 f"{disabled_count} link(s) temporarily disabled — statuses "

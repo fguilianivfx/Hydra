@@ -441,15 +441,13 @@ lequel est en cause, et lesquels ne font que transmettre.
 Un **clic droit** sur un lien le désactive : les statuts sont **recalculés**
 comme si cette dépendance n'existait pas — un nœud dont le seul input périmé
 passait par ce lien redevient vert. Un second clic droit le réactive
-(« Enable all links » dans la barre d'outils rétablit **tout**, y compris les
-filtres ci-dessous : *Mute same task connections* est décochée et **tous les
-formats sont recochés**).
+(pour tout rétablir d'un coup, recochez les cases des filtres ci-dessous).
 
 > Ces désactivations sont **temporaires et en mémoire uniquement** : **rien
 > n'est écrit dans la base de données**, et tout est perdu dès qu'un nouveau
 > graphe est affiché.
 
-Le panneau **Display** (à gauche) propose trois réglages :
+Le panneau **Display** (à gauche) propose quatre réglages :
 
 **Show disable branches** — masque les nœuds qui n'ont plus **aucun chemin
 actif** jusqu'à la scène interrogée, c'est-à-dire ceux qui n'y sont plus reliés
@@ -511,6 +509,16 @@ branches coupées (*Show disable branches*) ne change rien au contenu des
 boîtes. Un output sans consommateur connu n'est jamais masqué, et tout
 rétablir rend les boîtes à l'identique.
 
+**Show tasks** — seconde liste **dynamique**, sous celle des formats : une case
+par task présente dans le graphe, **dans l'ordre des lignes** (haut → bas :
+modeling, shading, rig… compositing), toutes cochées par défaut. **Décocher**
+une task coupe **tous les liens qui en partent** : cette étape cesse
+d'alimenter le graphe, et les outputs dont elle était le seul consommateur
+disparaissent aussi. Les liens qui *arrivent* sur cette task restent actifs —
+c'est bien la contribution de la task en aval que l'on retire. Comme pour les
+formats, les cases décochées survivent à un nouveau *Graph* tant que la task
+existe encore.
+
 **Redraw layout** — bouton **sous le graphe**, en tête de la ligne de légende. Masquer des nœuds **ne déplace
 jamais** les autres : ils restent où ils étaient, ce qui laisse des colonnes
 vides (masquer 150 nœuds sur 170 étalait les rescapés sur toute la largeur
@@ -521,9 +529,9 @@ est conservé, l'opération est idempotente, et tout réafficher puis redessiner
 rend exactement la disposition de départ.
 
 > Le classement se fait sur la colonne du modèle : un nœud **déplacé à la
-> main** revient donc sur sa colonne au prochain *Redraw layout*.
-> **Reset layout** (barre d'outils) est différent : il rétablit la disposition
-> **d'origine** — ordre des lignes et colonnes initiales, trous compris.
+> main** revient donc sur sa colonne au prochain *Redraw layout*. Le bouton
+> recadre aussi la vue sur l'ensemble — c'est le seul recentrage manuel de
+> l'interface, le graphe étant déjà ajusté automatiquement à chaque *Graph*.
 
 > Nuance : le nœud à l'origine d'une republication (ex. un `modeling` dont un
 > `v007` existe alors que le graphe tire le `v005`) reste **vert** — ses
@@ -544,9 +552,7 @@ rend exactement la disposition de départ.
 | **Survol** d'un lien            | Scènes reliées + assets qui y transitent, avec format et versions |
 | **Molette**                     | Zoom (ancré sous le curseur)               |
 | **Bouton du milieu** + glisser  | Déplacement (pan)                          |
-| **Recentrer** (`Ctrl+0`)        | Ajuste le zoom pour tout voir              |
-| **Reset layout** (barre d'outils) | Rétablit l'ordre des lignes et les colonnes d'origine |
-| **Redraw layout** (sous le graphe) | Resserre le graphe sur les nœuds encore affichés |
+| **Redraw layout** (sous le graphe) | Resserre le graphe sur les nœuds encore affichés, puis recadre la vue |
 
 ---
 
