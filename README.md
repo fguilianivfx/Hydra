@@ -9,9 +9,13 @@ scènes dont elle dépend, coloré selon leur fraîcheur.
   de la version — ex. `tmp_024C_0060_lighting_main (v010)` ; puis **un output
   par ligne** — chaque output en **vert** s'il est à sa dernière version
   publiée, en **rouge** sinon avec la version disponible (`rendercam ⚠
-  (v001 → v002)`). Le nom affiché est le **nom publié** (`assets.name`,
-  ex. `dd_28_rues_armel_shd`) et non la clé de flux `node_name` (`dd`), écrit
-  sur ses **20 premiers caractères** suivis de `...` s'il est tronqué
+  (v001 → v002)`). Un rectangle ne liste que les outputs qui **alimentent
+  réellement** le graphe : beaucoup de scènes bindent aussi leurs *propres*
+  publications, et ces auto-binds ne relient rien — les afficher revenait à
+  marquer « périmé » un asset que personne n'importe. Le nom affiché est le
+  **nom publié** (`assets.name`, ex. `dd_28_rues_armel_shd`) et non la clé de
+  flux `node_name` (`dd`), écrit sur ses **20 premiers caractères** suivis de
+  `...` s'il est tronqué
   (`camera_layer_01_camera_abc` → `camera_layer_01_came...`) ;
 * une **ligne par type de tâche**, en deux niveaux (**asset** puis **shot**)
   séparés par un trait, le flux descendant ; lignes **réordonnables** en

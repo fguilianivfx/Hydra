@@ -436,12 +436,23 @@ def build_graph(assets, scenes, binds, input_name):
             if pid not in seen_assets:
                 stack.append(pid)
 
+    # Assets qui ALIMENTENT réellement le graphe : ceux qu'une autre scène
+    # importe. Beaucoup de scènes bindent aussi leurs *propres* outputs ; ces
+    # binds-là ne relient rien (même scène, même version) et n'ont donc pas à
+    # peupler le rectangle — sinon la boîte v048 listait un « dd » que
+    # personne ne consomme, marqué à tort « ⚠ (v048 → v049) ».
+    flowing_assets = {pid for aid, pid in asset_edges
+                      if _asset_scene_key(assets[aid])
+                      != _asset_scene_key(assets[pid])}
+    flowing_assets |= {aid for aid in s0_dep_assets
+                       if _asset_scene_key(assets[aid]) != start_key}
+
     # Regroupement des assets par scène productrice, et format publié par
     # chaque output (pour les info-bulles et la liste « Mute formats »).
     group_node_names = defaultdict(set)
     group_formats = defaultdict(dict)
     group_labels = defaultdict(dict)
-    for aid in seen_assets:
+    for aid in flowing_assets:
         a = assets[aid]
         key = _asset_scene_key(a)
         group_node_names[key].add(a["node_name"])
