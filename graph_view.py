@@ -381,6 +381,8 @@ class SceneNodeItem(QGraphicsObject):
         self._title_lines = []
         self._meta_lines = []       # list[(texte, couleur)]
         self._output_lines = []     # list[(texte, couleur)] : un asset/ligne
+        # libellé d'output -> scènes qui l'importent (rempli par la vue)
+        self._consumers = {}
 
         self.setFlag(QGraphicsItem.ItemIsMovable, True)
         self.setFlag(QGraphicsItem.ItemIsSelectable, True)
@@ -389,6 +391,11 @@ class SceneNodeItem(QGraphicsObject):
         self.setZValue(0)
         self.setToolTip(self._tooltip_text())
         self._relayout()
+
+    def set_output_consumers(self, consumers):
+        """Qui importe chaque output ; sert à expliquer l'info-bulle."""
+        self._consumers = dict(consumers)
+        self.setToolTip(self._tooltip_text())
 
     # --- géométrie / contenu ------------------------------------------------
     _version_state = staticmethod(_vstate)
@@ -406,9 +413,14 @@ class SceneNodeItem(QGraphicsObject):
         if n.outputs:
             parts.append("Outputs:")
             for name, latest, fmt in n.outputs:
-                parts.append(
-                    f"  {name}{_fmt_tag(fmt)} "
-                    f"{self._version_state(n.version, latest)}")
+                line = (f"  {name}{_fmt_tag(fmt)} "
+                        f"{self._version_state(n.version, latest)}")
+                # Qui importe cet output ? Une ligne n'est jamais là par
+                # hasard : elle alimente au moins une scène du graphe.
+                users = self._consumers.get(name, ())
+                if users:
+                    line += "\n      → imported by: " + ", ".join(users)
+                parts.append(line)
         parts.append({
             "ok": "up to date",
             "stale": "outdated (stale input)",
@@ -794,11 +806,21 @@ class DependencyGraphView(QGraphicsView):
             src.add_edge(edge)
             dst.add_edge(edge)
 
-        # 5) placement.
+        # 5) qui importe quoi (info-bulle des nœuds).
+        by_node = defaultdict(dict)
+        for (key, label), children in result.output_consumers.items():
+            names = [result.nodes[c].display_name for c in children
+                     if c in result.nodes]
+            if names:
+                by_node[key][label] = sorted(names)
+        for key, item in self._node_items.items():
+            item.set_output_consumers(by_node.get(key, {}))
+
+        # 6) placement.
         self._reflow(record_initial=True)
         self.reset_view()
 
-        # 6) les filtres actifs s'appliquent au nouveau graphe (les formats
+        # 7) les filtres actifs s'appliquent au nouveau graphe (les formats
         # absents de celui-ci sont simplement sans effet).
         self.formats_changed.emit(list(result.formats))
         if self._mute_same_task or self._muted_formats:

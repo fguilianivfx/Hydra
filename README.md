@@ -12,7 +12,11 @@ scènes dont elle dépend, coloré selon leur fraîcheur.
   (v001 → v002)`). Un rectangle ne liste que les outputs qui **alimentent
   réellement** le graphe : beaucoup de scènes bindent aussi leurs *propres*
   publications, et ces auto-binds ne relient rien — les afficher revenait à
-  marquer « périmé » un asset que personne n'importe. Le nom affiché vient de
+  marquer « périmé » un asset que personne n'importe. **Survoler le rectangle**
+  indique, sous chaque output, **quelle(s) scène(s) l'importent** — utile quand
+  une ligne semble en trop : elle alimente souvent une autre version de la même
+  task (une bibliothèque de matériaux chaînée d'une version à l'autre, par
+  exemple), pas la scène interrogée. Le nom affiché vient de
   `assets.name` (et non de la clé de flux `node_name`), **débarrassé du nom de
   la scène productrice** que le titre donne déjà — avec ou sans le code du
   show : `28_rues_armel_shading_bank_abcdef_matlib` → `matlib`,
@@ -511,7 +515,7 @@ rend exactement la disposition de départ.
 | **Clic droit** sur un lien      | **Désactive/réactive** le lien (temporaire) |
 | **Glisser** un nœud             | Réordonner (déplacement **horizontal** seul)|
 | **Glisser la poignée** de ligne (à gauche) | **Réordonner les lignes** de tâche (vertical) |
-| **Survol** d'un nœud            | Dépendances directes + graphiste + inputs/outputs avec **format** `[abc]` et versions `(vXXX)` ou `(vXXX → vYYY)` |
+| **Survol** d'un nœud            | Dépendances directes + graphiste + inputs/outputs avec **format** `[abc]`, versions `(vXXX)` ou `(vXXX → vYYY)`, et **qui importe** chaque output |
 | **Survol** d'un lien            | Scènes reliées + assets qui y transitent, avec format et versions |
 | **Molette**                     | Zoom (ancré sous le curseur)               |
 | **Bouton du milieu** + glisser  | Déplacement (pan)                          |

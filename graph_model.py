@@ -214,7 +214,8 @@ class GraphResult:
     __slots__ = ("nodes", "edges", "start_key", "row_tasks", "row_levels",
                  "separator_after_row", "stats",
                  "edge_assets", "edge_details", "stale_asset_ids",
-                 "stale_edges", "edge_formats", "formats")
+                 "stale_edges", "edge_formats", "formats",
+                 "output_consumers")
 
     def __init__(self):
         self.nodes = {}            # key -> SceneNode
@@ -236,6 +237,10 @@ class GraphResult:
         # liste triée de ceux présents dans le graphe.
         self.edge_formats = {}     # (top, bottom) -> frozenset[str]
         self.formats = []
+        # Qui consomme chaque output : (clé du nœud, libellé) -> clés des
+        # scènes qui l'importent. Sert à expliquer, au survol, pourquoi une
+        # ligne figure dans un rectangle.
+        self.output_consumers = {}
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +566,16 @@ def build_graph(assets, scenes, binds, input_name):
         if _asset_scene_key(a) in node_keys:
             formats.add(a.get("format", ""))
     result.formats = sorted(formats - {""})
+
+    # Consommateurs de chaque output, pour l'info-bulle du nœud.
+    consumers = defaultdict(set)
+    for (top, bottom), aids in result.edge_assets.items():
+        for aid in aids:
+            label = group_labels[top].get(assets[aid]["node_name"])
+            if label:
+                consumers[(top, label)].add(bottom)
+    result.output_consumers = {k: tuple(sorted(v))
+                               for k, v in consumers.items()}
 
     # Statut par propagation à trois états :
     #   stale (rouge)     = importe au moins un asset supplanté ;
