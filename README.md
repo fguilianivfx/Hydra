@@ -9,7 +9,9 @@ scènes dont elle dépend, coloré selon leur fraîcheur.
   de la version — ex. `tmp_024C_0060_lighting_main (v010)` ; puis **un output
   par ligne** — chaque output en **vert** s'il est à sa dernière version
   publiée, en **rouge** sinon avec la version disponible (`rendercam ⚠
-  (v001 → v002)`) ;
+  (v001 → v002)`). Un nom d'output est écrit sur ses **20 premiers
+  caractères**, suivis de `...` s'il est tronqué
+  (`camera_layer_01_camera_abc` → `camera_layer_01_came...`) ;
 * une **ligne par type de tâche**, en deux niveaux (**asset** puis **shot**)
   séparés par un trait, le flux descendant ; lignes **réordonnables** en
   glissant leur poignée à gauche ; la **scène interrogée** reste tout en bas ;
@@ -471,7 +473,7 @@ Un format inconnu n'affiche pas de crochets vides.
 Les trois réglages se **cumulent** avec les clics droit, chacun se levant
 indépendamment, et n'écrivent **jamais** dans la base.
 
-**Redraw layout** — bouton sous les réglages. Masquer des nœuds **ne déplace
+**Redraw layout** — bouton **sous le graphe**, à droite. Masquer des nœuds **ne déplace
 jamais** les autres : ils restent où ils étaient, ce qui laisse des colonnes
 vides (masquer 150 nœuds sur 170 étalait les rescapés sur toute la largeur
 d'origine). Ce bouton **resserre le graphe à la demande** : les colonnes
@@ -506,7 +508,7 @@ rend exactement la disposition de départ.
 | **Bouton du milieu** + glisser  | Déplacement (pan)                          |
 | **Recentrer** (`Ctrl+0`)        | Ajuste le zoom pour tout voir              |
 | **Reset layout** (barre d'outils) | Rétablit l'ordre des lignes et les colonnes d'origine |
-| **Redraw layout** (panneau gauche) | Resserre le graphe sur les nœuds encore affichés |
+| **Redraw layout** (sous le graphe) | Resserre le graphe sur les nœuds encore affichés |
 
 ---
 

@@ -68,7 +68,10 @@ COL_HEADER_BORDER = QColor("#3a414c")
 COL_SEPARATOR = QColor("#727e8f")
 
 # --- Géométrie --------------------------------------------------------------
-NODE_W = 200.0
+# Largeur calée sur le pire cas d'une ligne d'output : 20 caractères + « ... »
+# suivis de « ⚠ (v005 → v007) ». En dessous, un nom long se faisait ré-élider
+# et la règle des 20 caractères n'était pas tenue.
+NODE_W = 252.0
 PAD = 11.0
 COL_W = NODE_W + 52.0
 EDGE_HIT_WIDTH = 12.0      # largeur de la zone cliquable d'un lien
@@ -89,16 +92,17 @@ ZOOM_MIN = 0.02
 ZOOM_MAX = 12.0
 
 
+# Longueur max d'un nom d'output dans un rectangle, avant troncature.
+NODE_NAME_MAX = 20
+
+
 def abbreviate_node(name):
-    """Abrège un node_name long (camera_layer_01_camera_abc -> camera)."""
+    """20 premiers caractères d'un node_name, suivis de « ... » si tronqué."""
     if not name:
         return ""
-    if len(name) <= 16:
+    if len(name) <= NODE_NAME_MAX:
         return name
-    head = name.split("_")[0]
-    if head and len(head) <= 16:
-        return head
-    return name[:14] + "…"
+    return name[:NODE_NAME_MAX] + "..."
 
 
 def _vfmt(version):
