@@ -247,26 +247,27 @@ class EdgeItem(QGraphicsPathItem):
         lines = [self.src.node.display_name,
                  f"→ {self.dst.node.display_name}",
                  f"This link: {carried}"]
-        # Mutes lus en base : un asset muted isolément (depuis un autre outil)
-        # ne coupe pas le lien, mais est signalé ligne à ligne.
-        db_partial = getattr(self._view, "_db_partial", {}).get(self.key, ())
-        in_db = self.key in getattr(self._view, "_db_muted", ())
-        persistent = getattr(self._view, "_mute_backend", None) is not None
+        # Mutes lus depuis la cible : un asset muted isolément (posé par un
+        # autre outil) ne coupe pas le lien, mais est signalé ligne à ligne.
+        view = self._view
+        db_partial = getattr(view, "_db_partial", {}).get(self.key, ())
+        in_db = self.key in getattr(view, "_db_muted", ())
+        partial_text = getattr(view, "_mute_partial_text", "") or "— muted"
         details = self.details()
         if details:
             lines.append(f"Assets through this link ({len(details)}):")
             for label, cur, latest, fmt in details:
-                mark = "  — muted in DB" if label in db_partial else ""
+                mark = f"  {partial_text}" if label in db_partial else ""
                 lines.append(
                     f"  {label}{_fmt_tag(fmt)} {_vstate(cur, latest)}{mark}")
+        muted_text = getattr(view, "_mute_muted_text", "")
+        action_text = getattr(view, "_mute_action_text", "")
         if self.disabled:
-            lines.append("MUTED (saved in DB) — right-click to unmute" if in_db
+            lines.append(muted_text if (in_db and muted_text)
                          else "DISABLED — right-click to re-enable")
         else:
-            lines.append(
-                "Click: details · Right-click: mute this link (saved in DB)"
-                if persistent else
-                "Click: details · Right-click: disable this link")
+            lines.append("Click: details · "
+                         + (action_text or "Right-click: disable this link"))
         self.setToolTip("\n".join(lines))
         self.update()
 
@@ -763,9 +764,14 @@ class DependencyGraphView(QGraphicsView):
         self._db_muted = set()
         self._db_partial = {}
         # Branché par MainWindow quand la persistance est disponible :
-        # backend(edge_key, disable) -> True si l'écriture en base est prise
-        # en charge (l'état affiché est ensuite relu depuis la base).
+        # backend(edge_key, disable) -> True si l'écriture est prise en charge
+        # (l'état affiché est ensuite relu depuis la cible). Les libellés
+        # viennent de MainWindow : la cible (base ou fichier d'essai) et la
+        # sécurité par source relèvent de sa politique, pas de la vue.
         self._mute_backend = None
+        self._mute_action_text = ""
+        self._mute_muted_text = ""
+        self._mute_partial_text = ""
         # Filtres de liens (toujours temporaires, en mémoire).
         self._mute_same_task = False
         self._muted_formats = set()
@@ -917,14 +923,21 @@ class DependencyGraphView(QGraphicsView):
             "child_version": edge.dst.node.version,
         }
 
-    def set_mute_backend(self, backend):
-        """Branche l'écriture des mutes en base (None = mémoire seule).
+    def set_mute_backend(self, backend, action_text="", muted_text="",
+                         partial_text=""):
+        """Branche l'écriture persistante des mutes (None = mémoire seule).
 
-        ``backend(edge_key, disable)`` doit rendre True quand il a écrit en
-        base puis resynchronisé l'affichage via :meth:`apply_db_mutes` ;
-        False fait retomber ce lien sur le mode mémoire historique.
+        ``backend(edge_key, disable)`` doit rendre True quand il a écrit puis
+        resynchronisé l'affichage via :meth:`apply_db_mutes` ; False fait
+        retomber ce lien sur le mode mémoire historique. Les trois libellés
+        décrivent la cible dans les info-bulles (base, fichier d'essai…).
         """
         self._mute_backend = backend
+        self._mute_action_text = action_text
+        self._mute_muted_text = muted_text
+        self._mute_partial_text = partial_text
+        for edge in self._edges:
+            edge.refresh_appearance()
 
     def toggle_edge_disabled(self, edge):
         """Mute/unmute un lien : en base si un backend est branché, sinon en

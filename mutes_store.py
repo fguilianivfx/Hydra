@@ -1,10 +1,10 @@
-"""Persistance des liens muted via le module studio (Kraken).
+"""Persistance des liens muted : bac à sable de test, ou base du studio.
 
-La base enregistre désormais les assets « muted » par tâche, à travers
+La base enregistre les assets « muted » par tâche, à travers
 ``dd.utils.assets_mutes`` fourni par Kraken. Dedale n'utilise que les CINQ
 fonctions prévues pour un outil interactif :
 
-    get_scene_mutes(scene_path)                              -> list
+    get_scene_mutes(scene_path)                               -> list
     is_asset_path_muted(scene_path, asset_path, entries=None) -> bool
     mute_asset(scene_path, asset_path)                        -> bool
     unmute_asset(scene_path, asset_path)                      -> bool
@@ -23,16 +23,28 @@ cron qui rafraîchit les statuts (OK/NAN/NT…) toutes les 10 minutes côté
 serveur ; appelées depuis un outil, elles feraient une requête par ligne
 affichée, ou écriraient un mute avec la mauvaise tâche.
 
-Le module est cherché dans ``$DEDALE_KRAKEN_PATH`` puis dans l'installation
-Kraken par défaut. Absent, Dedale retombe sur les mutes en mémoire
-(comportement historique) : rien d'autre ne change.
+DEUX CIBLES D'ÉCRITURE, choisies par ``DEDALE_MUTES_TARGET`` :
+
+* ``sandbox`` (**défaut**) — les mutes vont dans un simple fichier JSON
+  local. Le module Kraken n'est pas appelé du tout : **la base du studio
+  n'est jamais touchée**. C'est le mode pour essayer l'outil de bout en bout
+  (mute, relecture, restauration à la session suivante) sans conséquence, y
+  compris sur un poste sans Kraken ;
+* ``db`` — écriture réelle via le module Kraken, quand l'essai est concluant.
+
+Le fichier du bac à sable est ``DEDALE_MUTES_SANDBOX_FILE`` s'il est défini,
+sinon ``~/.dedale/mutes_sandbox.json`` ; le supprimer remet l'essai à zéro.
 """
 
+import json
 import os
 import sys
 
 # Installation Kraken par défaut (poste graphiste Windows).
 DEFAULT_KRAKEN_PATH = "C:/Program Files/Kraken"
+# Cible d'écriture par défaut : on ne touche PAS la base tant qu'on ne l'a
+# pas demandé explicitement.
+DEFAULT_TARGET = "sandbox"
 
 
 def kraken_path():
@@ -40,17 +52,120 @@ def kraken_path():
     return os.environ.get("DEDALE_KRAKEN_PATH") or DEFAULT_KRAKEN_PATH
 
 
+def default_target():
+    """Cible d'écriture demandée : « sandbox » (défaut) ou « db »."""
+    value = (os.environ.get("DEDALE_MUTES_TARGET") or DEFAULT_TARGET).strip()
+    return value.lower() or DEFAULT_TARGET
+
+
+def default_sandbox_file():
+    """Fichier JSON du bac à sable (surchargeable par l'environnement)."""
+    return (os.environ.get("DEDALE_MUTES_SANDBOX_FILE")
+            or os.path.join(os.path.expanduser("~"), ".dedale",
+                            "mutes_sandbox.json"))
+
+
+class SandboxMutes:
+    """Bac à sable : même contrat que le module, dans un fichier JSON.
+
+    Sert à essayer le mécanisme sans écrire dans la base du studio. La
+    normalisation imite l'esprit du module (tâche = dossier du fichier
+    scène, chemins insensibles à la casse et au sens des séparateurs) mais
+    reste **une approximation** : elle valide le fonctionnement de l'outil,
+    pas les règles de correspondance internes de Kraken.
+    """
+
+    def __init__(self, path):
+        self.path = path
+
+    # --- stockage ----------------------------------------------------------
+    def _load(self):
+        try:
+            with open(self.path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _save(self, data):
+        folder = os.path.dirname(self.path)
+        if folder:
+            os.makedirs(folder, exist_ok=True)
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1, sort_keys=True)
+
+    @staticmethod
+    def _norm(path):
+        return str(path or "").replace("\\", "/").strip().lower()
+
+    def _task_key(self, scene_path):
+        """Toutes les versions d'une scène partagent leur dossier = la tâche."""
+        return os.path.dirname(self._norm(scene_path))
+
+    # --- contrat (les cinq mêmes fonctions) --------------------------------
+    def get_scene_mutes(self, scene_path):
+        return list(self._load().get(self._task_key(scene_path), []))
+
+    def is_asset_path_muted(self, scene_path, asset_path, entries=None):
+        if entries is None:
+            entries = self.get_scene_mutes(scene_path)
+        return self._norm(asset_path) in {self._norm(e) for e in entries}
+
+    def mute_asset(self, scene_path, asset_path):
+        data = self._load()
+        task, entry = self._task_key(scene_path), self._norm(asset_path)
+        entries = data.setdefault(task, [])
+        if entry in entries:
+            return False
+        entries.append(entry)
+        self._save(data)
+        return True
+
+    def unmute_asset(self, scene_path, asset_path):
+        data = self._load()
+        task, entry = self._task_key(scene_path), self._norm(asset_path)
+        if entry not in data.get(task, []):
+            return False
+        data[task].remove(entry)
+        if not data[task]:
+            del data[task]
+        self._save(data)
+        return True
+
+    def unmute_scene(self, scene_path):
+        data = self._load()
+        task = self._task_key(scene_path)
+        if task not in data:
+            return False
+        del data[task]
+        self._save(data)
+        return True
+
+
 class MutesStore:
-    """Cache + garde-fous autour des cinq fonctions autorisées du module."""
+    """Cache + garde-fous autour des cinq fonctions autorisées."""
 
-    def __init__(self):
+    def __init__(self, target=None, sandbox_file=None):
+        self._target = (target or default_target()).lower()
+        self._sandbox_file = sandbox_file or default_sandbox_file()
         self._api = None
+        self._mode = ""          # "sandbox" | "kraken" | "" (indisponible)
         self._error = ""
-        self._entries = {}   # scene_path -> liste rendue par get_scene_mutes
-        self._import_api()
+        self._entries = {}       # scene_path -> liste rendue par get_scene_mutes
+        if self._target == "db":
+            self._use_kraken()
+        else:
+            self._use_sandbox()
 
-    # -------------------------------------------------------------- import --
-    def _import_api(self):
+    # -------------------------------------------------------- backends -----
+    def _use_sandbox(self):
+        sandbox = SandboxMutes(self._sandbox_file)
+        self._api = {name: getattr(sandbox, name) for name in (
+            "get_scene_mutes", "is_asset_path_muted", "mute_asset",
+            "unmute_asset", "unmute_scene")}
+        self._mode = "sandbox"
+
+    def _use_kraken(self):
         path = kraken_path()
         try:
             if os.path.isdir(path) and path not in sys.path:
@@ -65,18 +180,40 @@ class MutesStore:
                 "unmute_asset": api.unmute_asset,
                 "unmute_scene": api.unmute_scene,
             }
+            self._mode = "kraken"
         except Exception as exc:      # module absent, cassé ou incomplet
             self._api = None
+            self._mode = ""
             self._error = str(exc) or exc.__class__.__name__
 
+    # ----------------------------------------------------------- état ------
     @property
     def available(self):
-        """Vrai si le module studio est chargé : les mutes sont persistants."""
+        """Vrai si les mutes sont persistants (bac à sable ou base)."""
         return self._api is not None
 
     @property
+    def mode(self):
+        """« sandbox », « kraken », ou '' si rien n'est disponible."""
+        return self._mode
+
+    @property
+    def writes_to_db(self):
+        """Vrai seulement quand les écritures partent vers la base du studio."""
+        return self._mode == "kraken"
+
+    @property
+    def label(self):
+        """Nom court de la cible, pour les messages et les info-bulles."""
+        return "DB" if self.writes_to_db else "test file"
+
+    @property
+    def sandbox_file(self):
+        return self._sandbox_file
+
+    @property
     def error(self):
-        """Raison de l'indisponibilité ('' si le module est chargé)."""
+        """Raison de l'indisponibilité ('' si une cible est active)."""
         return "" if self.available else self._error
 
     def expected(self):

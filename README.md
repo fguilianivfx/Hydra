@@ -191,8 +191,8 @@ possède une version publiée plus récente que celle bindée.
   graphe directement.
 
 Les mutes de cette liste (outil graphiste) sont **en mémoire uniquement** :
-rien n'est écrit dans la base — seuls les mutes de **liens** du graphe (clic
-droit) sont enregistrés via le module Kraken, voir *Muter un lien*.
+rien n'est écrit — seuls les mutes de **liens** du graphe (clic droit) sont
+enregistrés, voir *Muter un lien*.
 
 #### « What's up ? »
 
@@ -291,7 +291,8 @@ habituelle suffit, sans `--add-data` ni `--hidden-import`.
 * Les requêtes sont **statiques** — aucune concaténation d'entrée utilisateur.
 * Dedale n'écrit **jamais** par cette connexion (lecture seule) : la seule
   écriture de l'outil — les mutes de liens — passe par le module **Kraken**
-  et sa propre connexion (voir *Muter un lien*).
+  et sa propre connexion, et par défaut elle est doublement bridée (fichier
+  d'essai, et dump `.sql` seul — voir *Muter un lien*).
 
 ### 2. Fichiers CSV (hors-ligne)
 
@@ -451,10 +452,8 @@ Un **clic droit** sur un lien le mute : les statuts sont **recalculés** comme
 si cette dépendance n'existait pas — un nœud dont le seul input périmé
 passait par ce lien redevient vert. Un second clic droit le réactive.
 
-**Avec le module studio (Kraken), le mute est enregistré en base.** Au
-lancement, Dedale charge `dd.utils.assets_mutes` depuis `C:/Program
-Files/Kraken` (surchargeable par la variable d'environnement
-`DEDALE_KRAKEN_PATH`). Quand il est disponible :
+**Le mute est enregistré** — dans un fichier d'essai par défaut, dans la base
+du studio sur demande (voir *Deux sécurités* juste après) :
 
 * muter un lien appelle `mute_asset(chemin_scène, chemin_asset)` pour
   **chaque asset transporté**, avec le chemin de la **scène qui les
@@ -484,10 +483,57 @@ statuts côté serveur (`mute_family`, `load_all_mutes`, `load_changed_mutes`,
 **jamais** appelée : depuis un outil, elle ferait une requête par ligne
 affichée, ou écrirait un mute avec la mauvaise tâche.
 
-> Sans le module (poste sans Kraken) : comportement historique — les
-> désactivations sont **temporaires et en mémoire uniquement**, **rien n'est
-> écrit dans la base**, et tout est perdu dès qu'un nouveau graphe est
-> affiché.
+#### Deux sécurités pour essayer sans risque
+
+Le module Kraken écrit dans la base du studio **quelle que soit la source que
+Dedale lit** : un simple filtre par source ne protégerait donc pas la base.
+Deux garde-fous, indépendants, encadrent l'essai — et les **deux** valeurs par
+défaut sont les prudentes.
+
+**1. Où vont les mutes** — `DEDALE_MUTES_TARGET` :
+
+| Valeur | Effet |
+|--------|-------|
+| `sandbox` (**défaut**) | Les mutes vont dans un **fichier JSON local**. Le module Kraken n'est même pas importé : **la base du studio n'est jamais touchée**. Tout le mécanisme fonctionne (mute, relecture, restauration à la session suivante), y compris sur un poste **sans Kraken**. |
+| `db` | Écriture réelle en base via le module Kraken, une fois l'essai concluant. |
+
+Le fichier d'essai est `DEDALE_MUTES_SANDBOX_FILE` s'il est défini, sinon
+`~/.dedale/mutes_sandbox.json` ; **le supprimer remet l'essai à zéro**. Son
+chemin est rappelé dans la barre d'état au lancement et dans la fenêtre de
+détail d'un lien.
+
+**2. Depuis quelle source** — `DEDALE_MUTES_SOURCES` (défaut : **`sql`**) :
+seuls les graphes issus du **dump .sql** enregistrent des mutes. Grapher
+depuis MySQL ou les CSV se comporte alors exactement comme avant : clic droit
+= désactivation **temporaire en mémoire**, et les mutes déjà enregistrés ne
+sont **ni lus ni appliqués**. Valeurs possibles : une liste (`sql,mysql`) ou
+`all`. La sécurité porte sur la source **qui a produit le graphe affiché**,
+pas sur l'onglet sélectionné : changer d'onglet sans regrapher n'ouvre jamais
+l'écriture.
+
+L'interface dit toujours dans quel régime on est : ligne d'état au lancement,
+rappel sous le graphe (`Right-click a link: mute (saved in test file)` /
+`disable (temporary)`), info-bulles des liens, et fenêtre de détail.
+
+Pour passer en réel, une fois l'essai validé :
+
+```bat
+set DEDALE_MUTES_TARGET=db
+set DEDALE_MUTES_SOURCES=all
+```
+
+> Sans cible disponible (`db` demandé mais Kraken absent) : comportement
+> historique — les désactivations sont **temporaires et en mémoire
+> uniquement**, **rien n'est écrit**, et tout est perdu dès qu'un nouveau
+> graphe est affiché.
+
+> ⚠ Le `dump.sql` livré dans `sample_data/` n'a **volontairement** ni colonne
+> de format ni colonne de chemin (il sert de cas « colonnes facultatives
+> absentes ») : les mutes y restent donc en mémoire. Pour l'essai, utilisez un
+> **export de la vraie base** — ses tables `scenes` et `assets` doivent porter
+> une colonne de chemin. Si elle manque, la barre d'état le dit précisément
+> (`table "scenes" has no file path column (path, file_path, filepath,
+> scene_path…)`).
 
 Le panneau **Display** (à gauche) propose quatre réglages :
 
@@ -589,7 +635,7 @@ rend exactement la disposition de départ.
 | Action                          | Effet                                      |
 |---------------------------------|--------------------------------------------|
 | **Clic** sur un lien            | Fenêtre de détail : assets transitant par le lien + outputs des deux scènes, avec versions |
-| **Clic droit** sur un lien      | **Mute/unmute** le lien — enregistré en base via le module Kraken, sinon temporaire |
+| **Clic droit** sur un lien      | **Mute/unmute** le lien — enregistré (fichier d'essai par défaut, base du studio sur demande) depuis les sources autorisées, sinon temporaire |
 | **Glisser** un nœud             | Réordonner (déplacement **horizontal** seul)|
 | **Glisser la poignée** de ligne (à gauche) | **Réordonner les lignes** de tâche (vertical) |
 | **Survol** d'un nœud            | Dépendances directes + graphiste + inputs/outputs avec **format** `[abc]`, versions `(vXXX)` ou `(vXXX → vYYY)`, et **qui importe** chaque output |
@@ -609,7 +655,7 @@ rend exactement la disposition de départ.
 | `graph_model.py`  | Résolution du nom, parcours scenes+binds, regroupement, statut, disposition. |
 | `graph_view.py`   | `QGraphicsScene`/`QGraphicsView`, items nœud & arête, drag horizontal, survol, zoom/pan. |
 | `artist_model.py` | Outil « Graphist to graph » : scènes d'un graphiste, imports périmés, assets disponibles, dates de publication. |
-| `mutes_store.py`  | Persistance des liens muted via `dd.utils.assets_mutes` (Kraken) : les cinq fonctions autorisées, cache `get_scene_mutes`, repli mémoire. |
+| `mutes_store.py`  | Persistance des liens muted : bac à sable JSON (défaut) ou `dd.utils.assets_mutes` (Kraken) — les cinq fonctions autorisées, cache `get_scene_mutes`, repli mémoire. |
 | `local_config.example.py` | Modèle à copier en `local_config.py` (non versionné) pour le vrai mot de passe. |
 | `sample_data/`    | Jeu d'exemple (CSV + dump SQL) pour un essai immédiat.       |
 

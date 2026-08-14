@@ -118,6 +118,27 @@ _COL_AVAILABLE = QColor("#1a5fb4")
 _ROLE_GROUP = Qt.UserRole + 1
 
 
+# Sources autorisées à enregistrer des mutes (sécurité d'essai). Le nom de la
+# source vient de MainWindow._current_source() : « mysql », « csv », « sql ».
+_MUTE_SOURCES_DEFAULT = "sql"
+_SOURCE_LABELS = {"mysql": "MySQL", "csv": "CSV files", "sql": "SQL dump"}
+
+
+def _mute_sources():
+    """Sources dont les mutes sont persistants (``DEDALE_MUTES_SOURCES``).
+
+    Défaut : le **dump .sql** seul — on peut ainsi essayer les mutes sur un
+    export sans que grapher depuis MySQL n'enregistre quoi que ce soit.
+    « all » lève la restriction.
+    """
+    raw = (os.environ.get("DEDALE_MUTES_SOURCES")
+           or _MUTE_SOURCES_DEFAULT).strip().lower()
+    if raw in ("all", "*"):
+        return set(_SOURCE_LABELS)
+    wanted = {part.strip() for part in raw.split(",") if part.strip()}
+    return wanted & set(_SOURCE_LABELS)
+
+
 def _with_format(label, fmt):
     """« smoke » + « bgeo.sc » -> « smoke [bgeo.sc] » (inchangé si inconnu)."""
     return f"{label} [{fmt}]" if fmt else label
@@ -156,18 +177,21 @@ class LinkDetailsDialog(QDialog):
         self._tree.setColumnWidth(0, 280)
         lay.addWidget(self._tree, 1)
 
-        hint = QLabel("Right-click a link in the graph to mute/unmute it. "
-                      "With the studio's Kraken module, mutes are saved to "
-                      "the database and restored in every session; otherwise "
-                      "they stay in memory.")
-        hint.setStyleSheet("color:#8a93a0;")
-        hint.setWordWrap(True)
-        lay.addWidget(hint)
+        self._hint = QLabel()
+        self._hint.setStyleSheet("color:#8a93a0;")
+        self._hint.setWordWrap(True)
+        lay.addWidget(self._hint)
+        self._target_label = "DB"
+
+    def set_context(self, hint, target_label):
+        """Rappelle où vont les mutes (bac à sable, base, ou mémoire)."""
+        self._hint.setText(hint)
+        self._target_label = target_label
 
     def show_link(self, info):
         state = ""
         if info["disabled"]:
-            state = ("  —  <b>MUTED (saved in DB)</b>"
+            state = (f"  —  <b>MUTED (saved in {self._target_label})</b>"
                      if info.get("db_muted") else "  —  <b>DISABLED</b>")
         if info["carries_stale"]:
             verdict = ("<span style='color:#b4392c;'>This link carries an "
@@ -224,11 +248,15 @@ class MainWindow(QMainWindow):
         self._data_cache = {}
         self._link_dialog = None
         # Résultat du graphe affiché (chemins scène/assets des liens : sert à
-        # la persistance des mutes).
+        # la persistance des mutes), et source dont il provient.
         self._graph_result = None
-        # Persistance des liens muted via le module studio (Kraken). Module
-        # absent : tout reste en mémoire, comme avant.
+        self._graph_source = ""
+        # Persistance des liens muted : bac à sable de test par défaut, base
+        # du studio sur demande (DEDALE_MUTES_TARGET=db).
         self._mutes = ms.MutesStore()
+        # Sécurité : seules ces sources peuvent enregistrer des mutes. Par
+        # défaut le dump .sql seul, pour essayer sans toucher au reste.
+        self._mute_sources = _mute_sources()
         # Message à faire survivre au rafraîchissement links_changed (raison
         # d'un repli mémoire : le compteur l'écraserait sinon aussitôt).
         self._mute_notice = ""
@@ -242,20 +270,14 @@ class MainWindow(QMainWindow):
         self._expanded_groups = {"scene": set(), "date": set()}
 
         self._build_ui()
-        if self._mutes.available:
-            self.view.set_mute_backend(self._edge_mute_backend)
+        self._sync_mute_backend()
         self._restore_settings()
         # État de la source affiché d'emblée : sur l'onglet MySQL, la connexion
         # est testée au lancement plutôt qu'au premier changement d'onglet.
         self._fit_source_tab()
         if self.tabs.currentIndex() == 0:
             self._refresh_mysql_status()
-        if not self._mutes.available and self._mutes.expected():
-            # Kraken est installé mais son module n'a pas pu être chargé :
-            # mieux vaut le dire que muter en silence en mémoire seulement.
-            self.statusBar().showMessage(
-                f"Kraken mutes module not loaded ({self._mutes.error}) — "
-                "link mutes stay in memory for this session.")
+        self.statusBar().showMessage(self._mute_mode_message())
 
     # ------------------------------------------------------------------ UI --
     def _build_ui(self):
@@ -854,10 +876,8 @@ class MainWindow(QMainWindow):
         # Le rappel des raccourcis occupe sa propre ligne : sur la même que les
         # pastilles il se réduisait à une colonne étroite dès que l'on
         # élargissait la partie gauche.
-        tip = QLabel("Hover: dependencies + artist · Click a link: details · "
-                     "Right-click a link: disable (temporary) · Wheel: zoom · "
-                     "Middle button: pan · Drag a node: horizontal · "
-                     "Drag a row handle: reorder tasks")
+        self.lbl_tip = tip = QLabel()
+        self._refresh_tip()
         tip.setStyleSheet("color:#8a93a0;")
         # Sans cela, ce libellé impose une largeur minimale au panneau droit
         # et empêche d'élargir la partie gauche.
@@ -982,21 +1002,81 @@ class MainWindow(QMainWindow):
                         title="Error")
             return
 
-        self.view.set_graph(result)
+        # La sécurité porte sur la source qui a produit CE graphe.
         self._graph_result = result
-        # Les mutes enregistrés en base (module Kraken) sont relus à chaque
-        # graphe : une nouvelle session retrouve le même état.
+        self._graph_source = self._current_source()
+        self._sync_mute_backend()
+        self.view.set_graph(result)
+        # Les mutes enregistrés sont relus à chaque graphe : une nouvelle
+        # session retrouve le même état.
         restored = self._apply_db_mutes(refresh=True)
         stats = result.stats
         message = (f"\"{scene_name}\": {stats['nodes']} scenes, "
                    f"{stats['edges']} links "
                    f"({len(assets)} assets, {len(scenes)} scenes in DB).")
         if restored:
-            message += f" {restored} muted link(s) restored from the DB."
+            message += (f" {restored} muted link(s) restored from the "
+                        f"{self._mutes.label}.")
+        elif not self._mutes_enabled() and self._mutes.available:
+            message += (" Mutes stay in memory here (saved from "
+                        f"{self._mute_sources_label()} only).")
         self.statusBar().showMessage(message)
         self._store_password()
 
     # ------------------------------------------ mutes persistants (Kraken) --
+    def _mute_sources_label(self):
+        names = [_SOURCE_LABELS[s] for s in ("mysql", "csv", "sql")
+                 if s in self._mute_sources]
+        return " / ".join(names) if names else "no source"
+
+    def _mutes_enabled(self, source=None):
+        """Vrai si les mutes de CE graphe sont persistants.
+
+        Deux conditions : une cible d'écriture disponible, et une source
+        autorisée. La source retenue est celle qui a produit le graphe
+        affiché — pas l'onglet courant : changer d'onglet sans regrapher ne
+        doit pas ouvrir l'écriture sur des données venues d'ailleurs.
+        """
+        source = self._graph_source if source is None else source
+        return self._mutes.available and source in self._mute_sources
+
+    def _mute_mode_message(self):
+        """Ligne d'état résumant où vont les mutes (et d'où)."""
+        if not self._mutes.available:
+            if self._mutes.expected():
+                return (f"Kraken mutes module not loaded "
+                        f"({self._mutes.error}) — link mutes stay in memory.")
+            return "Link mutes stay in memory (no mutes backend configured)."
+        where = self._mute_sources_label()
+        if self._mutes.writes_to_db:
+            return (f"Link mutes are written to the studio DB, from "
+                    f"{where} only.")
+        return (f"Test mode: link mutes go to {self._mutes.sandbox_file} "
+                f"(studio DB untouched), from {where} only.")
+
+    def _refresh_tip(self):
+        """Rappel des raccourcis sous le graphe, accordé au mode des mutes."""
+        action = (f"mute (saved in {self._mutes.label})"
+                  if self._mutes_enabled() else "disable (temporary)")
+        self.lbl_tip.setText(
+            "Hover: dependencies + artist · Click a link: details · "
+            f"Right-click a link: {action} · Wheel: zoom · "
+            "Middle button: pan · Drag a node: horizontal · "
+            "Drag a row handle: reorder tasks")
+
+    def _sync_mute_backend(self):
+        """Branche/débranche l'écriture des mutes selon la source graphée."""
+        self._refresh_tip()
+        if not self._mutes_enabled():
+            self.view.set_mute_backend(None)
+            return
+        target = self._mutes.label          # « DB » ou « test file »
+        self.view.set_mute_backend(
+            self._edge_mute_backend,
+            action_text=f"Right-click: mute this link (saved in {target})",
+            muted_text=f"MUTED (saved in {target}) — right-click to unmute",
+            partial_text=f"— muted in {target}")
+
     def _edge_mute_paths(self, edge_key):
         """(chemin de la scène importatrice, [(libellé, chemin asset)…]).
 
@@ -1007,15 +1087,18 @@ class MainWindow(QMainWindow):
         result = self._graph_result
         if result is None:
             return None, "no graph is displayed"
+        columns = ", ".join(ds._RAW_PATH_COLUMNS[:4]) + "…"
         node = result.nodes.get(edge_key[1])
         scene_path = node.path if node is not None else ""
         if not scene_path:
-            return None, "the importing scene has no path in this source"
+            return None, (f"table \"scenes\" has no file path column "
+                          f"({columns}) in this source")
         pairs = result.edge_asset_paths.get(edge_key, ())
         if not pairs:
             return None, "no asset goes through this link"
         if any(not path for _label, path in pairs):
-            return None, "an asset has no path in this source"
+            return None, (f"table \"assets\" has no file path column "
+                          f"({columns}) in this source")
         return scene_path, list(pairs)
 
     def _compute_db_mutes(self, refresh=False):
@@ -1046,13 +1129,19 @@ class MainWindow(QMainWindow):
         return muted, partial
 
     def _apply_db_mutes(self, refresh=False):
-        """Resynchronise l'affichage depuis la base ; rend le nb de liens muted."""
-        if not self._mutes.available or self._graph_result is None:
+        """Resynchronise l'affichage depuis la cible ; rend le nb de liens muted.
+
+        Gardée par la même sécurité que l'écriture : sur une source non
+        autorisée, les mutes enregistrés ne sont ni lus ni appliqués — le
+        graphe reste exactement celui d'avant cette fonctionnalité.
+        """
+        if not self._mutes_enabled() or self._graph_result is None:
             return 0
         try:
             muted, partial = self._compute_db_mutes(refresh=refresh)
         except Exception as exc:
-            self.statusBar().showMessage(f"Mutes DB unreachable: {exc}")
+            self.statusBar().showMessage(
+                f"Mutes {self._mutes.label} unreachable: {exc}")
             return 0
         self.view.apply_db_mutes(muted, partial)
         return len(muted)
@@ -1065,6 +1154,11 @@ class MainWindow(QMainWindow):
         (``get_scene_mutes``) : l'interface reflète ce qu'elle contient
         vraiment, pas l'intention du clic (consigne du module).
         """
+        if not self._mutes_enabled():
+            self._mute_notice = (
+                "Link kept in memory only — mutes are saved from "
+                f"{self._mute_sources_label()} only.")
+            return False
         scene_path, pairs = self._edge_mute_paths(edge_key)
         if scene_path is None:
             # Affiché par _on_links_changed, qui suit le basculement local.
@@ -1079,16 +1173,17 @@ class MainWindow(QMainWindow):
             error = str(exc) or exc.__class__.__name__
         self._apply_db_mutes(refresh=True)
         applied = (edge_key in self.view.db_muted_edges()) == disable
+        target = self._mutes.label
         if error or not applied:
             detail = f" ({error})" if error else ""
             self.statusBar().showMessage(
-                f"The mutes DB did not record the change{detail}.")
+                f"The mutes {target} did not record the change{detail}.")
         elif disable:
             self.statusBar().showMessage(
-                f"Link muted in DB ({len(pairs)} asset(s)) — every session "
-                "will now start with it muted.")
+                f"Link muted in {target} ({len(pairs)} asset(s)) — every "
+                "session will now start with it muted.")
         else:
-            self.statusBar().showMessage("Link unmuted in DB.")
+            self.statusBar().showMessage(f"Link unmuted in {target}.")
         return True
 
     def _error(self, message, title="Error"):
@@ -1484,6 +1579,9 @@ class MainWindow(QMainWindow):
         """Affiche le détail du lien cliqué (fenêtre non modale)."""
         if self._link_dialog is None:
             self._link_dialog = LinkDetailsDialog(self)
+        self._link_dialog.set_context(
+            "Right-click a link in the graph to mute/unmute it. "
+            + self._mute_mode_message(), self._mutes.label)
         self._link_dialog.show_link(info)
 
     def _on_hidden_nodes_changed(self, hidden_count):
@@ -1500,9 +1598,10 @@ class MainWindow(QMainWindow):
             return
         if notice:
             message = f"{notice} ({disabled_count} link(s) disabled.)"
-        elif self._mutes.available:
+        elif self._mutes_enabled():
             db_count = len(self.view.db_muted_edges())
-            tail = f" ({db_count} muted in DB)" if db_count else ""
+            tail = (f" ({db_count} saved in {self._mutes.label})"
+                    if db_count else "")
             message = (f"{disabled_count} link(s) disabled{tail} — statuses "
                        "recomputed.")
         else:
