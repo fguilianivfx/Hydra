@@ -184,7 +184,7 @@ class SceneNode:
 
     __slots__ = (
         "key", "project", "entity_name", "task_name", "av_name", "version",
-        "node_names", "outputs", "inputs", "artists", "scene_names",
+        "node_names", "outputs", "inputs", "artists", "scene_names", "path",
         "is_start", "status", "display_name", "row", "col",
     )
 
@@ -200,6 +200,7 @@ class SceneNode:
         self.inputs = []           # list[(label, version, latest_version)]
         self.artists = []          # graphistes ayant publié cette scène
         self.scene_names = []      # noms bruts des lignes scenes (pour survol)
+        self.path = ""             # chemin du fichier scène (mutes persistants)
         self.is_start = False
         # "ok" (vert) | "inherited" (orange) | "stale" (rouge)
         self.status = "ok"
@@ -215,7 +216,7 @@ class GraphResult:
                  "separator_after_row", "stats",
                  "edge_assets", "edge_details", "stale_asset_ids",
                  "stale_edges", "edge_formats", "formats",
-                 "output_consumers")
+                 "output_consumers", "edge_asset_paths")
 
     def __init__(self):
         self.nodes = {}            # key -> SceneNode
@@ -241,6 +242,11 @@ class GraphResult:
         # scènes qui l'importent. Sert à expliquer, au survol, pourquoi une
         # ligne figure dans un rectangle.
         self.output_consumers = {}
+        # Chemins bruts des assets transportés par chaque lien :
+        # (top, bottom) -> ((libellé, chemin), …). Les API de mutes du studio
+        # (module Kraken) parlent en chemins, pas en ids ; celui de la scène
+        # importatrice est sur le nœud (node.path).
+        self.edge_asset_paths = {}
 
 
 # ---------------------------------------------------------------------------
@@ -538,6 +544,15 @@ def build_graph(assets, scenes, binds, input_name):
         edge: _asset_details(aids, assets, asset_stream_max, raw_scene_names)
         for edge, aids in result.edge_assets.items()
     }
+    # Chemins bruts (libellé, chemin) des assets de chaque lien, pour muter en
+    # base. Le libellé reprend celui de edge_details (même _input_label) : un
+    # mute partiel lu en base peut ainsi être signalé asset par asset.
+    result.edge_asset_paths = {
+        edge: tuple(sorted({(_input_label(assets[aid], raw_scene_names),
+                             assets[aid].get("path", ""))
+                            for aid in aids}))
+        for edge, aids in result.edge_assets.items()
+    }
     # Assets périmés : suffit pour recalculer les statuts (pas besoin de
     # regarder à nouveau les versions ensuite).
     result.stale_asset_ids = frozenset(
@@ -700,6 +715,7 @@ def _fill_scene_meta(node, scenes_by_iv, scenes):
     existe ; sinon il est déduit du nom (sale) de la scène.
     """
     names, artists = [], []
+    path = ""
     for sid in scenes_by_iv.get(node.key, ()):
         s = scenes.get(sid, {})
         raw = s.get("name", "")
@@ -709,8 +725,11 @@ def _fill_scene_meta(node, scenes_by_iv, scenes):
             raw, node.project, node.entity_name, node.task_name, node.av_name)
         if artist and artist not in artists:
             artists.append(artist)
+        if not path:
+            path = s.get("path", "")
     node.scene_names = names
     node.artists = artists
+    node.path = path
 
 
 def _display_title(node, prefix):

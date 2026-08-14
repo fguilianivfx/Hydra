@@ -108,6 +108,8 @@ def _asset_from_mapping(get, date_column="", format_spec=("", "")):
         "date": (norm_str(get(date_column)) if date_column
                  else _pick(get, _DATE_COLUMNS)),
         "format": _asset_format(get, format_spec),
+        # Chemin publié : sert au mute persistant (module Kraken).
+        "path": row_path(get),
     }
 
 
@@ -125,7 +127,9 @@ _DATE_HINTS = ("date", "time", "stamp", "creat", "publi", "export", "modif",
 # Colonnes qui ne peuvent pas porter de date, même si leur valeur y ressemble.
 _NEVER_DATE_COLUMNS = frozenset(
     ("id", "asset_id", "scene_id", "version", "active", "project",
-     "entity_name", "task_name", "av_name", "node_name", "name")
+     "entity_name", "task_name", "av_name", "node_name", "name",
+     "path", "file_path", "filepath", "scene_path", "asset_path",
+     "output_path")
     + _ARTIST_COLUMNS)
 
 # Un vrai horodatage porte un séparateur : un entier seul (numéro de frame,
@@ -272,6 +276,35 @@ def _asset_format(get, spec):
             else norm_format(get(column)))
 
 
+# Colonnes portant le chemin brut du fichier publié (scène ou asset). Elles
+# alimentent la persistance des mutes (module studio Kraken), qui parle en
+# chemins. « name » n'en fait pas partie : un libellé n'est pas un chemin.
+_RAW_PATH_COLUMNS = ("path", "file_path", "filepath", "scene_path",
+                     "asset_path", "output_path", "file", "filename",
+                     "output")
+
+
+def _looks_like_raw_path(value):
+    """Vrai si la valeur ressemble à un chemin (au moins un séparateur)."""
+    s = norm_str(value)
+    return len(s) > 3 and ("/" in s or "\\" in s)
+
+
+def row_path(get):
+    """Chemin brut d'une ligne assets/scenes ('' si aucune colonne n'en a).
+
+    Détection par ligne : première colonne au nom connu dont la valeur
+    ressemble vraiment à un chemin. Sans chemin, la persistance des mutes est
+    simplement inactive pour cette ligne — on ne reconstruit jamais un chemin
+    approximatif.
+    """
+    for name in _RAW_PATH_COLUMNS:
+        value = norm_str(get(name))
+        if _looks_like_raw_path(value):
+            return value
+    return ""
+
+
 # Dernier schéma lu pour la table « assets » : permet d'expliquer dans
 # l'interface pourquoi aucune date n'a pu être trouvée.
 _LAST_ASSET_SCHEMA = {"columns": (), "date_column": "", "format_column": ""}
@@ -318,6 +351,8 @@ def _scene_from_mapping(get):
         "av_name": norm_str(get("av_name")),
         "version": to_int(get("version")),
         "artist": _pick(get, _ARTIST_COLUMNS),
+        # Chemin du fichier scène : c'est lui que les API de mutes attendent.
+        "path": row_path(get),
     }
 
 

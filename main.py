@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 import artist_model as am
 import data_source as ds
 import graph_model as gm
+import mutes_store as ms
 from graph_view import (
     COL_INHERITED_BORDER,
     COL_OK_BORDER,
@@ -155,14 +156,19 @@ class LinkDetailsDialog(QDialog):
         self._tree.setColumnWidth(0, 280)
         lay.addWidget(self._tree, 1)
 
-        hint = QLabel("Right-click a link in the graph to disable it "
-                      "temporarily (nothing is written to the database).")
+        hint = QLabel("Right-click a link in the graph to mute/unmute it. "
+                      "With the studio's Kraken module, mutes are saved to "
+                      "the database and restored in every session; otherwise "
+                      "they stay in memory.")
         hint.setStyleSheet("color:#8a93a0;")
         hint.setWordWrap(True)
         lay.addWidget(hint)
 
     def show_link(self, info):
-        state = ("  —  <b>DISABLED</b>" if info["disabled"] else "")
+        state = ""
+        if info["disabled"]:
+            state = ("  —  <b>MUTED (saved in DB)</b>"
+                     if info.get("db_muted") else "  —  <b>DISABLED</b>")
         if info["carries_stale"]:
             verdict = ("<span style='color:#b4392c;'>This link carries an "
                        "outdated asset.</span>")
@@ -217,6 +223,15 @@ class MainWindow(QMainWindow):
         # Cache des données par signature de source (en mémoire uniquement).
         self._data_cache = {}
         self._link_dialog = None
+        # Résultat du graphe affiché (chemins scène/assets des liens : sert à
+        # la persistance des mutes).
+        self._graph_result = None
+        # Persistance des liens muted via le module studio (Kraken). Module
+        # absent : tout reste en mémoire, comme avant.
+        self._mutes = ms.MutesStore()
+        # Message à faire survivre au rafraîchissement links_changed (raison
+        # d'un repli mémoire : le compteur l'écraserait sinon aussitôt).
+        self._mute_notice = ""
         # Outil « Graphist to graph » : dernier rapport et assets masqués
         # (en mémoire uniquement, rien n'est écrit en base).
         self._artist_report = None
@@ -227,12 +242,20 @@ class MainWindow(QMainWindow):
         self._expanded_groups = {"scene": set(), "date": set()}
 
         self._build_ui()
+        if self._mutes.available:
+            self.view.set_mute_backend(self._edge_mute_backend)
         self._restore_settings()
         # État de la source affiché d'emblée : sur l'onglet MySQL, la connexion
         # est testée au lancement plutôt qu'au premier changement d'onglet.
         self._fit_source_tab()
         if self.tabs.currentIndex() == 0:
             self._refresh_mysql_status()
+        if not self._mutes.available and self._mutes.expected():
+            # Kraken est installé mais son module n'a pas pu être chargé :
+            # mieux vaut le dire que muter en silence en mémoire seulement.
+            self.statusBar().showMessage(
+                f"Kraken mutes module not loaded ({self._mutes.error}) — "
+                "link mutes stay in memory for this session.")
 
     # ------------------------------------------------------------------ UI --
     def _build_ui(self):
@@ -960,12 +983,113 @@ class MainWindow(QMainWindow):
             return
 
         self.view.set_graph(result)
+        self._graph_result = result
+        # Les mutes enregistrés en base (module Kraken) sont relus à chaque
+        # graphe : une nouvelle session retrouve le même état.
+        restored = self._apply_db_mutes(refresh=True)
         stats = result.stats
-        self.statusBar().showMessage(
-            f"\"{scene_name}\": {stats['nodes']} scenes, "
-            f"{stats['edges']} links "
-            f"({len(assets)} assets, {len(scenes)} scenes in DB).")
+        message = (f"\"{scene_name}\": {stats['nodes']} scenes, "
+                   f"{stats['edges']} links "
+                   f"({len(assets)} assets, {len(scenes)} scenes in DB).")
+        if restored:
+            message += f" {restored} muted link(s) restored from the DB."
+        self.statusBar().showMessage(message)
         self._store_password()
+
+    # ------------------------------------------ mutes persistants (Kraken) --
+    def _edge_mute_paths(self, edge_key):
+        """(chemin de la scène importatrice, [(libellé, chemin asset)…]).
+
+        Renvoie ``(None, raison)`` quand la source ne fournit pas tous les
+        chemins : ce lien reste alors mutable en mémoire seulement — les API
+        du module parlent en chemins bruts, on n'en reconstruit jamais.
+        """
+        result = self._graph_result
+        if result is None:
+            return None, "no graph is displayed"
+        node = result.nodes.get(edge_key[1])
+        scene_path = node.path if node is not None else ""
+        if not scene_path:
+            return None, "the importing scene has no path in this source"
+        pairs = result.edge_asset_paths.get(edge_key, ())
+        if not pairs:
+            return None, "no asset goes through this link"
+        if any(not path for _label, path in pairs):
+            return None, "an asset has no path in this source"
+        return scene_path, list(pairs)
+
+    def _compute_db_mutes(self, refresh=False):
+        """(liens muted, {lien: libellés muted isolément}) d'après la base.
+
+        Un lien est muted quand TOUS ses assets le sont pour la scène qui les
+        importe ; une partie seulement (mute posé depuis un autre outil) est
+        rendue dans ``partial`` pour être signalée au survol sans couper le
+        lien. Une seule lecture (``get_scene_mutes``) par scène importatrice.
+        """
+        result = self._graph_result
+        muted, partial = set(), {}
+        refreshed = set()
+        for edge in result.edges:
+            scene_path, pairs = self._edge_mute_paths(edge)
+            if scene_path is None:
+                continue
+            entries = self._mutes.entries(
+                scene_path, refresh=refresh and scene_path not in refreshed)
+            refreshed.add(scene_path)
+            flags = [(label, self._mutes.is_muted(scene_path, path, entries))
+                     for label, path in pairs]
+            if all(f for _label, f in flags):
+                muted.add(edge)
+            elif any(f for _label, f in flags):
+                partial[edge] = tuple(sorted(
+                    label for label, f in flags if f))
+        return muted, partial
+
+    def _apply_db_mutes(self, refresh=False):
+        """Resynchronise l'affichage depuis la base ; rend le nb de liens muted."""
+        if not self._mutes.available or self._graph_result is None:
+            return 0
+        try:
+            muted, partial = self._compute_db_mutes(refresh=refresh)
+        except Exception as exc:
+            self.statusBar().showMessage(f"Mutes DB unreachable: {exc}")
+            return 0
+        self.view.apply_db_mutes(muted, partial)
+        return len(muted)
+
+    def _edge_mute_backend(self, edge_key, disable):
+        """Écrit un mute/unmute de lien en base ; True si pris en charge.
+
+        Un lien = un ``mute_asset``/``unmute_asset`` par asset transporté,
+        pour la scène qui les importe. Après chaque écriture la base est relue
+        (``get_scene_mutes``) : l'interface reflète ce qu'elle contient
+        vraiment, pas l'intention du clic (consigne du module).
+        """
+        scene_path, pairs = self._edge_mute_paths(edge_key)
+        if scene_path is None:
+            # Affiché par _on_links_changed, qui suit le basculement local.
+            self._mute_notice = f"Link kept in memory only — {pairs}."
+            return False
+        write = self._mutes.mute if disable else self._mutes.unmute
+        error = ""
+        try:
+            for _label, path in pairs:
+                write(scene_path, path)
+        except Exception as exc:
+            error = str(exc) or exc.__class__.__name__
+        self._apply_db_mutes(refresh=True)
+        applied = (edge_key in self.view.db_muted_edges()) == disable
+        if error or not applied:
+            detail = f" ({error})" if error else ""
+            self.statusBar().showMessage(
+                f"The mutes DB did not record the change{detail}.")
+        elif disable:
+            self.statusBar().showMessage(
+                f"Link muted in DB ({len(pairs)} asset(s)) — every session "
+                "will now start with it muted.")
+        else:
+            self.statusBar().showMessage("Link unmuted in DB.")
+        return True
 
     def _error(self, message, title="Error"):
         self.statusBar().showMessage(message)
@@ -1369,13 +1493,23 @@ class MainWindow(QMainWindow):
             "scene)." if hidden_count else "")
 
     def _on_links_changed(self, disabled_count):
-        """Un lien a été désactivé/réactivé (changement temporaire)."""
-        if disabled_count:
-            self.statusBar().showMessage(
-                f"{disabled_count} link(s) temporarily disabled — statuses "
-                "recomputed. Nothing is written to the database.")
-        else:
+        """Un lien a changé d'état (clic droit, mute en base ou filtre)."""
+        notice, self._mute_notice = self._mute_notice, ""
+        if not disabled_count:
             self.statusBar().showMessage("All links enabled.")
+            return
+        if notice:
+            message = f"{notice} ({disabled_count} link(s) disabled.)"
+        elif self._mutes.available:
+            db_count = len(self.view.db_muted_edges())
+            tail = f" ({db_count} muted in DB)" if db_count else ""
+            message = (f"{disabled_count} link(s) disabled{tail} — statuses "
+                       "recomputed.")
+        else:
+            message = (f"{disabled_count} link(s) temporarily disabled — "
+                       "statuses recomputed. Nothing is written to the "
+                       "database.")
+        self.statusBar().showMessage(message)
 
     # ------------------------------------------------- keyring (password) --
     def _on_remember_toggled(self, checked):
