@@ -118,18 +118,18 @@ _COL_AVAILABLE = QColor("#1a5fb4")
 _ROLE_GROUP = Qt.UserRole + 1
 
 
-# Sources autorisées à enregistrer des mutes (sécurité d'essai). Le nom de la
-# source vient de MainWindow._current_source() : « mysql », « csv », « sql ».
-_MUTE_SOURCES_DEFAULT = "sql"
+# Sources autorisées à enregistrer des mutes. Le nom de la source vient de
+# MainWindow._current_source() : « mysql », « csv », « sql ».
+_MUTE_SOURCES_DEFAULT = "all"
 _SOURCE_LABELS = {"mysql": "MySQL", "csv": "CSV files", "sql": "SQL dump"}
 
 
 def _mute_sources():
     """Sources dont les mutes sont persistants (``DEDALE_MUTES_SOURCES``).
 
-    Défaut : le **dump .sql** seul — on peut ainsi essayer les mutes sur un
-    export sans que grapher depuis MySQL n'enregistre quoi que ce soit.
-    « all » lève la restriction.
+    Défaut : **toutes**. La restriction reste disponible pour rejouer un
+    essai sur un export sans que grapher depuis MySQL n'enregistre quoi que
+    ce soit (``DEDALE_MUTES_SOURCES=sql``, ou une liste « sql,mysql »).
     """
     raw = (os.environ.get("DEDALE_MUTES_SOURCES")
            or _MUTE_SOURCES_DEFAULT).strip().lower()
@@ -1020,14 +1020,22 @@ class MainWindow(QMainWindow):
         elif not self._mutes_enabled() and self._mutes.available:
             message += (" Mutes stay in memory here (saved from "
                         f"{self._mute_sources_label()} only).")
+        elif not self._mutes.available and self._mutes.expected():
+            message += f" Mutes stay in memory ({self._mutes.error})."
         self.statusBar().showMessage(message)
         self._store_password()
 
     # ------------------------------------------ mutes persistants (Kraken) --
     def _mute_sources_label(self):
+        if self._mute_sources == set(_SOURCE_LABELS):
+            return "any source"
         names = [_SOURCE_LABELS[s] for s in ("mysql", "csv", "sql")
                  if s in self._mute_sources]
         return " / ".join(names) if names else "no source"
+
+    def _restricted_sources(self):
+        """Vrai si la liste des sources autorisées a été restreinte."""
+        return self._mute_sources != set(_SOURCE_LABELS)
 
     def _mutes_enabled(self, source=None):
         """Vrai si les mutes de CE graphe sont persistants.
@@ -1047,12 +1055,12 @@ class MainWindow(QMainWindow):
                 return (f"Kraken mutes module not loaded "
                         f"({self._mutes.error}) — link mutes stay in memory.")
             return "Link mutes stay in memory (no mutes backend configured)."
-        where = self._mute_sources_label()
+        scope = ("" if not self._restricted_sources()
+                 else f", from {self._mute_sources_label()} only")
         if self._mutes.writes_to_db:
-            return (f"Link mutes are written to the studio DB, from "
-                    f"{where} only.")
+            return f"Link mutes are written to the studio DB{scope}."
         return (f"Test mode: link mutes go to {self._mutes.sandbox_file} "
-                f"(studio DB untouched), from {where} only.")
+                f"(studio DB untouched){scope}.")
 
     def _refresh_tip(self):
         """Rappel des raccourcis sous le graphe, accordé au mode des mutes."""

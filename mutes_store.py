@@ -25,12 +25,14 @@ affichée, ou écriraient un mute avec la mauvaise tâche.
 
 DEUX CIBLES D'ÉCRITURE, choisies par ``DEDALE_MUTES_TARGET`` :
 
-* ``sandbox`` (**défaut**) — les mutes vont dans un simple fichier JSON
-  local. Le module Kraken n'est pas appelé du tout : **la base du studio
-  n'est jamais touchée**. C'est le mode pour essayer l'outil de bout en bout
-  (mute, relecture, restauration à la session suivante) sans conséquence, y
-  compris sur un poste sans Kraken ;
-* ``db`` — écriture réelle via le module Kraken, quand l'essai est concluant.
+* ``db`` (**défaut**) — écriture réelle dans la base du studio, via le
+  module Kraken. C'est le mode nominal : un mute posé ici est vu par les
+  autres outils et retrouvé à la session suivante, depuis n'importe quel
+  poste ;
+* ``sandbox`` — les mutes vont dans un simple fichier JSON local et le
+  module Kraken n'est pas appelé du tout : **la base n'est pas touchée**.
+  Reste disponible pour rejouer un essai de bout en bout (mute, relecture,
+  restauration) sans conséquence, y compris sur un poste sans Kraken.
 
 Le fichier du bac à sable est ``DEDALE_MUTES_SANDBOX_FILE`` s'il est défini,
 sinon ``~/.dedale/mutes_sandbox.json`` ; le supprimer remet l'essai à zéro.
@@ -42,9 +44,9 @@ import sys
 
 # Installation Kraken par défaut (poste graphiste Windows).
 DEFAULT_KRAKEN_PATH = "C:/Program Files/Kraken"
-# Cible d'écriture par défaut : on ne touche PAS la base tant qu'on ne l'a
-# pas demandé explicitement.
-DEFAULT_TARGET = "sandbox"
+# Cible d'écriture par défaut : la base du studio (mode nominal). Le bac à
+# sable reste accessible par DEDALE_MUTES_TARGET=sandbox pour un essai.
+DEFAULT_TARGET = "db"
 
 
 def kraken_path():
@@ -53,7 +55,7 @@ def kraken_path():
 
 
 def default_target():
-    """Cible d'écriture demandée : « sandbox » (défaut) ou « db »."""
+    """Cible d'écriture demandée : « db » (défaut) ou « sandbox »."""
     value = (os.environ.get("DEDALE_MUTES_TARGET") or DEFAULT_TARGET).strip()
     return value.lower() or DEFAULT_TARGET
 
