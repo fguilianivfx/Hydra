@@ -38,9 +38,32 @@ Le fichier du bac à sable est ``DEDALE_MUTES_SANDBOX_FILE`` s'il est défini,
 sinon ``~/.dedale/mutes_sandbox.json`` ; le supprimer remet l'essai à zéro.
 """
 
+import contextlib
 import json
+import logging
 import os
 import sys
+
+# Le module journalise ses refus (« 2 different assets share the folder … »)
+# au lieu de lever : on écoute son logger pour porter la raison jusqu'à
+# l'interface, au lieu de la laisser dans une console.
+MODULE_LOGGER = "dd.utils.assets_mutes"
+
+
+class _MessageCatcher(logging.Handler):
+    """Retient les avertissements/erreurs émis pendant une écriture."""
+
+    def __init__(self):
+        super().__init__(level=logging.WARNING)
+        self.messages = []
+
+    def emit(self, record):
+        try:
+            text = record.getMessage()
+        except Exception:                      # pragma: no cover - défensif
+            return
+        if text not in self.messages:
+            self.messages.append(text)
 
 # Installation Kraken par défaut (poste graphiste Windows).
 DEFAULT_KRAKEN_PATH = "C:/Program Files/Kraken"
@@ -241,6 +264,22 @@ class MutesStore:
         self._entries.clear()
 
     # ------------------------------------------------------------ écriture --
+    @contextlib.contextmanager
+    def capture_messages(self):
+        """Recueille ce que le module journalise pendant les écritures.
+
+        Un refus (« 2 different assets share the folder … ») n'est ni une
+        exception ni toujours visible dans le retour : c'est une ligne de
+        log. On la remonte pour l'afficher au lieu de la perdre.
+        """
+        catcher = _MessageCatcher()
+        logger = logging.getLogger(MODULE_LOGGER)
+        logger.addHandler(catcher)
+        try:
+            yield catcher.messages
+        finally:
+            logger.removeHandler(catcher)
+
     def mute(self, scene_path, asset_path):
         return bool(self._api["mute_asset"](scene_path, asset_path))
 

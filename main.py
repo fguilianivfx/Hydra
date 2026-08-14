@@ -1107,7 +1107,26 @@ class MainWindow(QMainWindow):
         if any(not path for _label, path in pairs):
             return None, (f"table \"assets\" has no file path column "
                           f"({columns}) in this source")
-        return scene_path, list(pairs)
+        return scene_path, self._with_folder_neighbours(pairs)
+
+    def _with_folder_neighbours(self, pairs):
+        """Ajoute les assets publiés dans les mêmes dossiers que ``pairs``.
+
+        Le module de mutes résout un asset par **son dossier** : quand
+        plusieurs y sont publiés (deux exports du même asset, l'un depuis
+        Maya, l'autre depuis Houdini ; « chair » et « chair_v001 »…), il ne
+        peut pas les distinguer et refuse de choisir. On les mute donc tous,
+        ce qui est bien l'intention : c'est le même asset.
+        """
+        folders = self._graph_result.folder_assets
+        by_path = {}
+        for label, path in pairs:
+            by_path[path] = label
+            for other_label, other_path in folders.get(
+                    ds.publish_folder(path), ()):
+                if other_path:
+                    by_path.setdefault(other_path, other_label)
+        return sorted((label, path) for path, label in by_path.items())
 
     def _compute_db_mutes(self, refresh=False):
         """(liens muted, {lien: libellés muted isolément}) d'après la base.
@@ -1157,9 +1176,10 @@ class MainWindow(QMainWindow):
     def _edge_mute_backend(self, edge_key, disable):
         """Écrit un mute/unmute de lien en base ; True si pris en charge.
 
-        Un lien = un ``mute_asset``/``unmute_asset`` par asset transporté,
-        pour la scène qui les importe. Après chaque écriture la base est relue
-        (``get_scene_mutes``) : l'interface reflète ce qu'elle contient
+        Un lien = un ``mute_asset``/``unmute_asset`` par asset transporté —
+        **et par voisin de publication**, le module résolvant par dossier
+        (voir ``_with_folder_neighbours``). Après chaque écriture la base est
+        relue (``get_scene_mutes``) : l'interface reflète ce qu'elle contient
         vraiment, pas l'intention du clic (consigne du module).
         """
         if not self._mutes_enabled():
@@ -1174,25 +1194,55 @@ class MainWindow(QMainWindow):
             return False
         write = self._mutes.mute if disable else self._mutes.unmute
         error = ""
-        try:
-            for _label, path in pairs:
-                write(scene_path, path)
-        except Exception as exc:
-            error = str(exc) or exc.__class__.__name__
+        # Le module journalise ses refus au lieu de lever : on les recueille
+        # pour pouvoir dire POURQUOI un asset n'a pas suivi.
+        with self._mutes.capture_messages() as messages:
+            try:
+                for _label, path in pairs:
+                    write(scene_path, path)
+            except Exception as exc:
+                error = str(exc) or exc.__class__.__name__
         self._apply_db_mutes(refresh=True)
-        applied = (edge_key in self.view.db_muted_edges()) == disable
         target = self._mutes.label
-        if error or not applied:
-            detail = f" ({error})" if error else ""
-            self.statusBar().showMessage(
-                f"The mutes {target} did not record the change{detail}.")
+        # Vérification asset par asset : un refus ne concerne souvent qu'une
+        # partie des chemins, et le lien ne doit pas être annoncé « muté ».
+        refused = self._refused_assets(scene_path, pairs, disable)
+        if error or refused:
+            self.statusBar().showMessage(self._mute_failure_message(
+                target, pairs, refused, error, list(messages)))
         elif disable:
             self.statusBar().showMessage(
                 f"Link muted in {target} ({len(pairs)} asset(s)) — every "
                 "session will now start with it muted.")
         else:
-            self.statusBar().showMessage(f"Link unmuted in {target}.")
+            self.statusBar().showMessage(
+                f"Link unmuted in {target} ({len(pairs)} asset(s)).")
         return True
+
+    def _refused_assets(self, scene_path, pairs, disable):
+        """Libellés des assets dont l'état voulu n'a pas été enregistré."""
+        try:
+            entries = self._mutes.entries(scene_path)
+            return [label for label, path in pairs
+                    if self._mutes.is_muted(scene_path, path, entries)
+                    != disable]
+        except Exception:
+            return [label for label, _path in pairs]
+
+    def _mute_failure_message(self, target, pairs, refused, error, messages):
+        """Explique ce qui n'a pas été enregistré, et si possible pourquoi."""
+        head = (f"{len(refused)}/{len(pairs)} asset(s) not recorded in the "
+                f"{target}: {', '.join(refused[:3])}"
+                + ("…" if len(refused) > 3 else "")
+                if refused else
+                f"The mutes {target} did not record the change")
+        if error:
+            return f"{head} ({error})."
+        if messages:
+            # Le message du module est plus précis que tout ce qu'on pourrait
+            # deviner (dossier partagé, asset introuvable…).
+            return f"{head} — {messages[0]}"
+        return f"{head}."
 
     def _error(self, message, title="Error"):
         self.statusBar().showMessage(message)

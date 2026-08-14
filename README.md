@@ -473,7 +473,25 @@ passait par ce lien redevient vert. Un second clic droit le réactive.
   tables `scenes` et `assets`) — pas d'id à chercher ni de séquence à
   reconstruire, la normalisation est faite dans les fonctions du module. Si
   la source n'expose pas ces chemins (le `dump.sql` d'exemple, par exemple),
-  le lien reste mutable **en mémoire seulement** et la barre d'état le dit.
+  le lien reste mutable **en mémoire seulement** et la barre d'état le dit ;
+* **les exports publiés dans le même dossier sont mutés ensemble.** Le module
+  résout un asset par **son dossier** : quand un même asset est exporté deux
+  fois côte à côte (un `.obj` depuis Maya et un depuis Houdini, un `chair` et
+  un `chair_v001`…), il ne peut pas les distinguer. Dedale ajoute donc
+  d'office à un clic droit **tous les assets publiés dans les mêmes
+  dossiers** que ceux transportés par le lien — c'est bien l'intention : il
+  s'agit du même asset. L'unmute suit la même règle.
+
+> Si le module refuse malgré tout (`2 different assets share the folder of …,
+> cannot tell which one to mute`), Dedale **ne prétend pas** que le lien est
+> muté : il vérifie l'état asset par asset après l'écriture et affiche ce qui
+> n'est pas passé, **avec la raison donnée par le module** —
+> `2/3 asset(s) not recorded in the DB: …_chaise_anim, …_chaise_anim_low —
+> 2 different assets share the folder of …`. Le lien apparaît alors en mute
+> **partiel** (assets marqués un à un dans l'info-bulle), pas en mute complet.
+> C'est une limite du module, pas de l'outil : lever l'ambiguïté demande une
+> correction côté `assets_mutes` ou côté données (deux publications
+> distinctes dans deux dossiers distincts).
 
 Seules les **cinq fonctions prévues** pour un outil interactif sont
 utilisées : `get_scene_mutes`, `is_asset_path_muted`, `mute_asset`,
