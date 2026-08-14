@@ -954,8 +954,11 @@ class DependencyGraphView(QGraphicsView):
             self._disabled_edges.add(edge.key)
         else:
             self._disabled_edges.discard(edge.key)
-            # Repli : ne jamais laisser un lien bloqué si le backend a disparu.
-            self._db_muted.discard(edge.key)
+            if self._mute_backend is None:
+                # Repli : ne jamais laisser un lien bloqué si aucun backend
+                # n'est branché. Avec un backend, l'état enregistré fait foi —
+                # un unmute refusé doit rester visible, pas être effacé.
+                self._db_muted.discard(edge.key)
         self._apply_status_recompute()
         if edge is self._selected_edge:
             self.edge_selected.emit(self.edge_info(edge))

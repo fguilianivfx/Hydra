@@ -1208,9 +1208,14 @@ class MainWindow(QMainWindow):
         # partie des chemins, et le lien ne doit pas être annoncé « muté ».
         refused = self._refused_assets(scene_path, pairs, disable)
         if error or refused:
-            self.statusBar().showMessage(self._mute_failure_message(
-                target, pairs, refused, error, list(messages)))
-        elif disable:
+            # Le clic doit malgré tout produire son effet : on rend False pour
+            # que la vue applique le mute en mémoire. Le lien est donc bien
+            # coupé à l'écran — seul l'enregistrement a échoué, et le message
+            # dit lequel, pourquoi, et que ça ne survivra pas à la session.
+            self._mute_notice = self._mute_failure_message(
+                target, pairs, refused, error, list(messages))
+            return False
+        if disable:
             self.statusBar().showMessage(
                 f"Link muted in {target} ({len(pairs)} asset(s)) — every "
                 "session will now start with it muted.")
@@ -1236,13 +1241,16 @@ class MainWindow(QMainWindow):
                 + ("…" if len(refused) > 3 else "")
                 if refused else
                 f"The mutes {target} did not record the change")
+        # Le clic reste appliqué en mémoire : il faut dire que l'effet est
+        # visible mais ne survivra pas à la session.
+        tail = " Applied for this session only."
         if error:
-            return f"{head} ({error})."
+            return f"{head} ({error}).{tail}"
         if messages:
             # Le message du module est plus précis que tout ce qu'on pourrait
             # deviner (dossier partagé, asset introuvable…).
-            return f"{head} — {messages[0]}"
-        return f"{head}."
+            return f"{head} — {messages[0]}{tail}"
+        return f"{head}.{tail}"
 
     def _error(self, message, title="Error"):
         self.statusBar().showMessage(message)
@@ -1655,7 +1663,7 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage("All links enabled.")
             return
         if notice:
-            message = f"{notice} ({disabled_count} link(s) disabled.)"
+            message = f"{notice} ({disabled_count} link(s) disabled)"
         elif self._mutes_enabled():
             db_count = len(self.view.db_muted_edges())
             tail = (f" ({db_count} saved in {self._mutes.label})"

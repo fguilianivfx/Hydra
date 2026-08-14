@@ -489,16 +489,28 @@ passait par ce lien redevient vert. Un second clic droit le réactive.
 > les assets qui transitent par ce lien, **plus** tous ceux publiés dans
 > leurs dossiers.
 
-> Si le module refuse malgré tout (`2 different assets share the folder of …,
-> cannot tell which one to mute`), Dedale **ne prétend pas** que le lien est
-> muté : il vérifie l'état asset par asset après l'écriture et affiche ce qui
-> n'est pas passé, **avec la raison donnée par le module** —
-> `2/3 asset(s) not recorded in the DB: …_chaise_anim, …_chaise_anim_low —
-> 2 different assets share the folder of …`. Le lien apparaît alors en mute
-> **partiel** (assets marqués un à un dans l'info-bulle), pas en mute complet.
-> C'est une limite du module, pas de l'outil : lever l'ambiguïté demande une
-> correction côté `assets_mutes` ou côté données (deux publications
-> distinctes dans deux dossiers distincts).
+> **Quand le module refuse.** `mute_asset` peut renoncer :
+> `2 different assets share the folder of …, cannot tell which one to mute`.
+> Le refus a lieu **à l'intérieur** de la fonction, qui résout par dossier :
+> aucun chemin qu'on lui passe n'y change quoi que ce soit, ni celui de
+> `chair`, ni celui de `chair_v001`. Dedale fait alors deux choses :
+>
+> 1. **le clic produit quand même son effet** — le lien est coupé et les
+>    statuts recalculés, en mémoire pour cette session ;
+> 2. **il ne prétend pas que c'est enregistré** : l'état est revérifié asset
+>    par asset après l'écriture, et la barre d'état affiche ce qui n'est pas
+>    passé, **avec la raison du module** et la portée réelle —
+>    `2/2 asset(s) not recorded in the DB: … · chair, … · chair_v001 —
+>    2 different assets share the folder of …  Applied for this session only.`
+>    L'info-bulle du lien reste `DISABLED` (et non `MUTED (saved in DB)`).
+>
+> Rendre ce mute **permanent** demande une correction hors de l'outil : côté
+> `assets_mutes` (savoir muter les deux candidats d'un dossier, ou accepter
+> l'asset explicite plutôt que le déduire du dossier), ou côté données (deux
+> publications distinctes dans deux dossiers distincts). Dedale n'utilise pas
+> `mute_family` pour contourner : c'est une fonction de la couche cron, qui
+> écrirait le mute **avec la mauvaise tâche** — or un mute vise ici une scène
+> enfant précise.
 
 Seules les **cinq fonctions prévues** pour un outil interactif sont
 utilisées : `get_scene_mutes`, `is_asset_path_muted`, `mute_asset`,
