@@ -456,8 +456,10 @@ passait par ce lien redevient vert. Un second clic droit le réactive.
 `DEDALE_KRAKEN_PATH`), depuis n'importe quelle source :
 
 * muter un lien appelle `mute_asset(chemin_scène, chemin_asset)` pour
-  **chaque asset transporté**, avec le chemin de la **scène qui les
-  importe** ; le second clic droit fait de même avec `unmute_asset` ;
+  **chaque asset transporté**, avec le chemin de la **scène enfant** — celle
+  qui les importe, jamais la scène parente qui les publie. Un lien portant
+  cinq assets pose donc **cinq mutes vers cette scène enfant** ; le second
+  clic droit fait de même avec `unmute_asset` ;
 * après **chaque** écriture, `get_scene_mutes()` est **relu** et l'affichage
   se resynchronise sur ce que la base contient vraiment (consigne du
   développeur du module) ;
@@ -479,8 +481,13 @@ passait par ce lien redevient vert. Un second clic droit le réactive.
   fois côte à côte (un `.obj` depuis Maya et un depuis Houdini, un `chair` et
   un `chair_v001`…), il ne peut pas les distinguer. Dedale ajoute donc
   d'office à un clic droit **tous les assets publiés dans les mêmes
-  dossiers** que ceux transportés par le lien — c'est bien l'intention : il
-  s'agit du même asset. L'unmute suit la même règle.
+  dossiers** que ceux transportés par le lien, et les mute eux aussi **vers
+  la scène enfant** — c'est bien l'intention : il s'agit du même asset.
+  L'unmute suit la même règle.
+
+> En résumé, un clic droit sur un lien mute **vers la scène enfant** : tous
+> les assets qui transitent par ce lien, **plus** tous ceux publiés dans
+> leurs dossiers.
 
 > Si le module refuse malgré tout (`2 different assets share the folder of …,
 > cannot tell which one to mute`), Dedale **ne prétend pas** que le lien est
