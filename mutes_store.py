@@ -67,9 +67,10 @@ class _MessageCatcher(logging.Handler):
 
 # Installation Kraken par défaut (poste graphiste Windows).
 DEFAULT_KRAKEN_PATH = "C:/Program Files/Kraken"
-# Cible d'écriture par défaut : la base du studio (mode nominal). Le bac à
-# sable reste accessible par DEDALE_MUTES_TARGET=sandbox pour un essai.
-DEFAULT_TARGET = "db"
+# Cible d'écriture par défaut : le bac à sable, le temps de mettre au point
+# la stratégie des couples (version d'asset, scène). DEDALE_MUTES_TARGET=db
+# bascule sur la base du studio.
+DEFAULT_TARGET = "sandbox"
 
 
 def kraken_path():

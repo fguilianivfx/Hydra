@@ -305,19 +305,6 @@ def row_path(get):
     return ""
 
 
-def publish_folder(path):
-    """Dossier de publication d'un chemin, normalisé ('' si aucun).
-
-    Le module de mutes du studio résout un asset par **son dossier** : deux
-    exports publiés côte à côte (``chair`` et ``chair_v001``, Maya et
-    Houdini…) y sont indissociables. Ce regroupement sert donc à les traiter
-    ensemble plutôt qu'à en choisir un.
-    """
-    text = norm_str(path).replace("\\", "/")
-    folder = text.rsplit("/", 1)[0] if "/" in text else ""
-    return folder.rstrip("/").lower()
-
-
 # Dernier schéma lu pour la table « assets » : permet d'expliquer dans
 # l'interface pourquoi aucune date n'a pu être trouvée.
 _LAST_ASSET_SCHEMA = {"columns": (), "date_column": "", "format_column": ""}

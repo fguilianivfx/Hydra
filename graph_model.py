@@ -20,8 +20,6 @@ import os
 import re
 from collections import defaultdict
 
-import data_source as ds
-
 
 class SceneResolutionError(Exception):
     """Le nom de scène saisi n'a pu être résolu vers une scène connue."""
@@ -218,7 +216,7 @@ class GraphResult:
                  "separator_after_row", "stats",
                  "edge_assets", "edge_details", "stale_asset_ids",
                  "stale_edges", "edge_formats", "formats",
-                 "output_consumers", "edge_asset_paths", "folder_assets")
+                 "output_consumers", "edge_couples")
 
     def __init__(self):
         self.nodes = {}            # key -> SceneNode
@@ -244,17 +242,13 @@ class GraphResult:
         # scènes qui l'importent. Sert à expliquer, au survol, pourquoi une
         # ligne figure dans un rectangle.
         self.output_consumers = {}
-        # Chemins bruts des assets transportés par chaque lien :
-        # (top, bottom) -> ((libellé, chemin), …). Les API de mutes du studio
-        # (module Kraken) parlent en chemins, pas en ids ; celui de la scène
-        # importatrice est sur le nœud (node.path).
-        self.edge_asset_paths = {}
-        # Voisins de publication : dossier -> ((libellé, chemin), …) de TOUS
-        # les assets publiés dans ce dossier. Le module résolvant par dossier,
-        # plusieurs exports d'un même asset (Maya + Houdini, « chair » et
-        # « chair_v001 »…) ne peuvent pas être distingués : on les mute
-        # ensemble.
-        self.folder_assets = {}
+        # Couples (version d'asset, scène) portés par chaque lien — l'unité
+        # que l'on mute : (top, bottom) -> ((id, libellé, version, dernière
+        # version, format, chemin), …). L'``id`` identifie une VERSION précise
+        # (le chemin publié quand la source le donne), car deux versions d'un
+        # même flux partagent leur libellé. La scène du couple est celle du
+        # bas du lien (l'importatrice), dont le chemin est sur le nœud.
+        self.edge_couples = {}
 
 
 # ---------------------------------------------------------------------------
@@ -547,37 +541,19 @@ def build_graph(assets, scenes, binds, input_name):
         _fill_scene_meta(node, scenes_by_iv, scenes)
         node.display_name = _display_title(node, prefix)
 
-    # Détail des assets transitant par chaque lien (panneau de sélection).
+    # Couples (version d'asset, scène) de chaque lien : l'unité que l'on mute.
+    result.edge_couples = {
+        edge: _edge_couples(aids, assets, asset_stream_max, raw_scene_names)
+        for edge, aids in result.edge_assets.items()
+    }
+    # Détail affiché (info-bulle, fenêtre de lien) : même contenu, sans l'id
+    # ni le chemin, dédoublonné.
     result.edge_details = {
-        edge: _asset_details(aids, assets, asset_stream_max, raw_scene_names)
-        for edge, aids in result.edge_assets.items()
+        edge: tuple(sorted({(label, version, latest, fmt)
+                            for _cid, label, version, latest, fmt, _path
+                            in couples}))
+        for edge, couples in result.edge_couples.items()
     }
-    # Chemins bruts (libellé, chemin) des assets de chaque lien, pour muter en
-    # base. Le libellé reprend celui de edge_details (même _input_label) : un
-    # mute partiel lu en base peut ainsi être signalé asset par asset.
-    result.edge_asset_paths = {
-        edge: tuple(sorted({(_input_label(assets[aid], raw_scene_names),
-                             assets[aid].get("path", ""))
-                            for aid in aids}))
-        for edge, aids in result.edge_assets.items()
-    }
-    # Tous les assets publiés dans les mêmes dossiers que ceux transportés :
-    # le module de mutes résout par dossier, deux exports voisins y sont donc
-    # indissociables et doivent être mutés ensemble.
-    edge_folders = {ds.publish_folder(path)
-                    for pairs in result.edge_asset_paths.values()
-                    for _label, path in pairs if path}
-    edge_folders.discard("")
-    folder_assets = defaultdict(set)
-    if edge_folders:
-        for a in assets.values():
-            path = a.get("path", "")
-            folder = ds.publish_folder(path) if path else ""
-            if folder in edge_folders:
-                folder_assets[folder].add(
-                    (_input_label(a, raw_scene_names), path))
-    result.folder_assets = {folder: tuple(sorted(pairs))
-                            for folder, pairs in folder_assets.items()}
     # Assets périmés : suffit pour recalculer les statuts (pas besoin de
     # regarder à nouveau les versions ensuite).
     result.stale_asset_ids = frozenset(
@@ -814,20 +790,40 @@ def _input_is_stale(asset, asset_stream_max):
     return latest is not None and asset["version"] < latest
 
 
-def _asset_details(asset_ids, assets, asset_stream_max,
-                   scene_names_by_key=None):
-    """[(label, version, latest_version, format)] trié, pour des assets."""
-    rows = set()
+def couple_id(path, label, version):
+    """Identifiant d'un couple (version d'asset, scène).
+
+    Le chemin publié identifie une version sans ambiguïté ; quand la source
+    n'en fournit pas, on retombe sur « libellé|vNNN » — deux versions d'un
+    même flux partagent leur libellé, la version est donc indispensable.
+    """
+    if path:
+        return str(path).replace("\\", "/").strip().lower()
+    return f"{label}|v{version if version is not None else '?'}"
+
+
+def _edge_couples(asset_ids, assets, asset_stream_max,
+                  scene_names_by_key=None):
+    """[(id, label, version, latest, format, path)] trié, pour des assets.
+
+    Une entrée = une **version** d'asset, l'unité que l'on mute vers la scène
+    qui l'importe.
+    """
+    rows = {}
     for aid in asset_ids:
         a = assets.get(aid)
         if a is None:
             continue
         stream = (a["project"], a["entity_name"], a["task_name"],
                   a["av_name"], a["node_name"])
-        rows.add((_input_label(a, scene_names_by_key), a["version"],
-                  asset_stream_max.get(stream, a["version"]),
-                  a.get("format", "")))
-    return sorted(rows, key=lambda t: t[0])
+        label = _input_label(a, scene_names_by_key)
+        path = a.get("path", "")
+        cid = couple_id(path, label, a["version"])
+        rows[cid] = (cid, label, a["version"],
+                     asset_stream_max.get(stream, a["version"]),
+                     a.get("format", ""), path)
+    return tuple(sorted(rows.values(),
+                        key=lambda r: (r[1], r[2] if r[2] is not None else -1)))
 
 
 def recompute_status(result, disabled_edges=()):

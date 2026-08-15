@@ -192,7 +192,7 @@ possède une version publiée plus récente que celle bindée.
 
 Les mutes de cette liste (outil graphiste) sont **en mémoire uniquement** :
 rien n'est écrit — seuls les mutes de **liens** du graphe (clic droit) sont
-enregistrés, voir *Muter un lien*.
+enregistrés, voir *Muter des assets sur un lien*.
 
 #### « What's up ? »
 
@@ -291,7 +291,7 @@ habituelle suffit, sans `--add-data` ni `--hidden-import`.
 * Les requêtes sont **statiques** — aucune concaténation d'entrée utilisateur.
 * Dedale n'écrit **jamais** par cette connexion (lecture seule) : la seule
   écriture de l'outil — les mutes de liens — passe par le module **Kraken**
-  et sa propre connexion (voir *Muter un lien*).
+  et sa propre connexion (voir *Muter des assets sur un lien*).
 
 ### 2. Fichiers CSV (hors-ligne)
 
@@ -359,7 +359,7 @@ Colonnes **requises** (les autres sont ignorées) :
   `author`…), **format** (`format`, `ext`… ou l'extension d'un chemin), qui
   alimente la liste *Show formats*, et **chemin publié** (`path`,
   `file_path`, `output`…), requis pour enregistrer les mutes en base (voir
-  *Muter un lien*).
+  *Muter des assets sur un lien*).
 * **`scenes.csv`** : `id, name, project, entity_name, task_name, av_name,
   version` — le titre du rectangle reprend `name` + version ; colonnes
   facultatives : **graphiste** (`artist`, `user`, `created_by`…) pour le
@@ -445,72 +445,68 @@ supplanté) · **jaune** = le lien est sain mais son parent est lui-même obsol�
 Sur un nœud rouge alimenté par plusieurs liens, on repère donc immédiatement
 lequel est en cause, et lesquels ne font que transmettre.
 
-### Muter un lien (clic droit)
+### Muter des assets sur un lien (clic droit)
 
-Un **clic droit** sur un lien le mute : les statuts sont **recalculés** comme
-si cette dépendance n'existait pas — un nœud dont le seul input périmé
-passait par ce lien redevient vert. Un second clic droit le réactive.
+L'unité mutée est le **couple (version d'asset → scène)** : muter, c'est dire
+« cette version-là de cet asset n'alimente plus cette scène-là ». Un lien du
+graphe en porte un ou plusieurs — un par asset qu'il transporte — et n'est
+**coupé que lorsque tous les siens sont mutés**.
 
-**Le mute est enregistré dans la base du studio** via le module Kraken
-(`dd.utils.assets_mutes`, chargé depuis `C:/Program Files/Kraken` ou
-`DEDALE_KRAKEN_PATH`), depuis n'importe quelle source :
+Un **clic droit** sur un lien ouvre un menu qui **liste ses couples**, avec
+pour chacun sa version et son format :
 
-* muter un lien appelle `mute_asset(chemin_scène, chemin_asset)` pour
-  **chaque asset transporté**, avec le chemin de la **scène enfant** — celle
-  qui les importe, jamais la scène parente qui les publie. Un lien portant
-  cinq assets pose donc **cinq mutes vers cette scène enfant** ; le second
-  clic droit fait de même avec `unmute_asset` ;
+* **un seul couple** → une seule entrée, *Mute* ou *Unmute* selon son état ;
+* **plusieurs couples** → une entrée **par couple** (cochée quand il est
+  muté), puis **Mute all (n)** et **Unmute all (n)**. Les deux entrées
+  globales se grisent quand elles n'ont plus rien à faire.
+
+Chaque entrée rappelle l'état du couple : *muted in DB* / *muted in test
+file* quand il est enregistré, *muted (session only)* quand il n'a pu l'être.
+Les statuts sont **recalculés** à chaque changement — un nœud dont le seul
+input périmé passait par un couple muté redevient vert.
+
+**L'enregistrement** passe par le module Kraken (`dd.utils.assets_mutes`,
+chargé depuis `C:/Program Files/Kraken` ou `DEDALE_KRAKEN_PATH`), depuis
+n'importe quelle source :
+
+* muter un couple appelle `mute_asset(chemin_scène, chemin_asset)` avec le
+  chemin de la **scène enfant** — celle qui importe, jamais la scène parente
+  qui publie. *Mute all* sur un lien à cinq assets pose donc **cinq mutes
+  vers cette scène enfant** ; *Unmute* fait de même avec `unmute_asset` ;
 * après **chaque** écriture, `get_scene_mutes()` est **relu** et l'affichage
-  se resynchronise sur ce que la base contient vraiment (consigne du
+  se resynchronise sur ce que la cible contient vraiment (consigne du
   développeur du module) ;
-* à chaque *Graph* — donc aussi dans une **nouvelle session** — les mutes de
-  la base sont relus et les liens concernés réapparaissent mutés (« *n muted
-  link(s) restored from the DB* » dans la barre d'état) : **on retrouve le
-  même état d'une session à l'autre**, et depuis n'importe quel poste ;
-* un lien n'est montré muté que si **tous** ses assets le sont pour la scène
-  importatrice ; un asset muted isolément (posé depuis un autre outil, le
-  standalone par exemple) ne coupe pas le lien mais est signalé « *muted in
-  DB* » ligne à ligne dans l'info-bulle du lien ;
+* à chaque *Graph* — donc aussi dans une **nouvelle session** — les couples
+  enregistrés sont relus et réappliqués (« *n muted link(s) restored…* ») :
+  **on retrouve le même état d'une session à l'autre**, depuis n'importe quel
+  poste ;
+* une **version** d'asset est identifiée par son **chemin publié** ; sans
+  colonne de chemin, elle l'est par `libellé|vNNN`, de sorte que deux
+  versions d'un même flux ne se confondent jamais ;
 * tout se parle en **chemins bruts** (colonnes `path`/`file_path`/… des
   tables `scenes` et `assets`) — pas d'id à chercher ni de séquence à
   reconstruire, la normalisation est faite dans les fonctions du module. Si
   la source n'expose pas ces chemins (le `dump.sql` d'exemple, par exemple),
-  le lien reste mutable **en mémoire seulement** et la barre d'état le dit ;
-* **les exports publiés dans le même dossier sont mutés ensemble.** Le module
-  résout un asset par **son dossier** : quand un même asset est exporté deux
-  fois côte à côte (un `.obj` depuis Maya et un depuis Houdini, un `chair` et
-  un `chair_v001`…), il ne peut pas les distinguer. Dedale ajoute donc
-  d'office à un clic droit **tous les assets publiés dans les mêmes
-  dossiers** que ceux transportés par le lien, et les mute eux aussi **vers
-  la scène enfant** — c'est bien l'intention : il s'agit du même asset.
-  L'unmute suit la même règle.
+  le mute reste **en mémoire seulement** et la barre d'état le dit.
 
-> En résumé, un clic droit sur un lien mute **vers la scène enfant** : tous
-> les assets qui transitent par ce lien, **plus** tous ceux publiés dans
-> leurs dossiers.
+> **Un couple muté ailleurs** — posé depuis un autre outil, le standalone par
+> exemple — est repris tel quel : il apparaît muté dans le menu et dans
+> l'info-bulle, sans couper le lien tant que les autres couples passent.
 
 > **Quand le module refuse.** `mute_asset` peut renoncer :
 > `2 different assets share the folder of …, cannot tell which one to mute`.
 > Le refus a lieu **à l'intérieur** de la fonction, qui résout par dossier :
-> aucun chemin qu'on lui passe n'y change quoi que ce soit, ni celui de
-> `chair`, ni celui de `chair_v001`. Dedale fait alors deux choses :
->
-> 1. **le clic produit quand même son effet** — le lien est coupé et les
->    statuts recalculés, en mémoire pour cette session ;
-> 2. **il ne prétend pas que c'est enregistré** : l'état est revérifié asset
->    par asset après l'écriture, et la barre d'état affiche ce qui n'est pas
->    passé, **avec la raison du module** et la portée réelle —
->    `2/2 asset(s) not recorded in the DB: … · chair, … · chair_v001 —
->    2 different assets share the folder of …  Applied for this session only.`
->    L'info-bulle du lien reste `DISABLED` (et non `MUTED (saved in DB)`).
->
-> Rendre ce mute **permanent** demande une correction hors de l'outil : côté
-> `assets_mutes` (savoir muter les deux candidats d'un dossier, ou accepter
-> l'asset explicite plutôt que le déduire du dossier), ou côté données (deux
-> publications distinctes dans deux dossiers distincts). Dedale n'utilise pas
-> `mute_family` pour contourner : c'est une fonction de la couche cron, qui
-> écrirait le mute **avec la mauvaise tâche** — or un mute vise ici une scène
-> enfant précise.
+> aucun chemin qu'on lui passe n'y change quoi que ce soit. Dedale fait alors
+> deux choses : **le clic produit quand même son effet** (le couple est muté
+> en mémoire, les statuts recalculés), et **il ne prétend pas que c'est
+> enregistré** — l'état est revérifié couple par couple après l'écriture, et
+> la barre d'état affiche ce qui n'est pas passé, la raison du module et la
+> portée : `1/2 asset version(s) not recorded in the DB: … — 2 different
+> assets share the folder of …  Applied for this session only.`
+> Le rendre permanent demande une correction hors de l'outil (côté
+> `assets_mutes`, ou côté données). Dedale n'utilise pas `mute_family` pour
+> contourner : c'est une fonction de la couche cron, qui écrirait le mute
+> **avec la mauvaise tâche** — or un mute vise ici une scène enfant précise.
 
 Seules les **cinq fonctions prévues** pour un outil interactif sont
 utilisées : `get_scene_mutes`, `is_asset_path_muted`, `mute_asset`,
@@ -520,18 +516,18 @@ statuts côté serveur (`mute_family`, `load_all_mutes`, `load_changed_mutes`,
 **jamais** appelée : depuis un outil, elle ferait une requête par ligne
 affichée, ou écrirait un mute avec la mauvaise tâche.
 
-#### Rejouer un essai sans toucher la base
+#### Mode d'essai (par défaut) et passage en réel
 
-Le régime nominal écrit dans la base du studio. Deux brides restent
-disponibles pour éprouver le mécanisme (nouvelle version du module, nouveau
-schéma…) sans conséquence ; **aucune n'est active par défaut**.
+Le temps de mettre au point la stratégie des couples, Dedale écrit dans un
+**fichier d'essai** et ne touche pas la base. Deux réglages indépendants
+commandent cela.
 
 **1. Où vont les mutes** — `DEDALE_MUTES_TARGET` :
 
 | Valeur | Effet |
 |--------|-------|
-| `db` (**défaut**) | Écriture réelle en base via le module Kraken. |
-| `sandbox` | Les mutes vont dans un **fichier JSON local** et le module Kraken n'est même pas importé : **la base n'est pas touchée**. Tout le mécanisme fonctionne (mute, relecture, restauration à la session suivante), y compris sur un poste **sans Kraken**. |
+| `sandbox` (**défaut**) | Les mutes vont dans un **fichier JSON local** et le module Kraken n'est même pas importé : **la base n'est pas touchée**. Tout le mécanisme fonctionne (mute, relecture, restauration à la session suivante), y compris sur un poste **sans Kraken**. |
+| `db` | Écriture réelle en base via le module Kraken, une fois la stratégie validée. |
 
 Le fichier d'essai est `DEDALE_MUTES_SANDBOX_FILE` s'il est défini, sinon
 `~/.dedale/mutes_sandbox.json` ; **le supprimer remet l'essai à zéro**. Son
@@ -546,17 +542,16 @@ sont **ni lus ni appliqués**. La restriction porte sur la source **qui a
 produit le graphe affiché**, pas sur l'onglet sélectionné : changer d'onglet
 sans regrapher n'ouvre jamais l'écriture.
 
-Pour rejouer un essai complet à blanc :
+Pour écrire pour de bon dans la base, une fois la stratégie validée :
 
 ```bat
-set DEDALE_MUTES_TARGET=sandbox
-set DEDALE_MUTES_SOURCES=sql
+set DEDALE_MUTES_TARGET=db
 ```
 
 L'interface dit toujours dans quel régime on est : ligne d'état au lancement,
-rappel sous le graphe (`Right-click a link: mute (saved in DB)` /
-`mute (saved in test file)` / `disable (temporary)`), info-bulles des liens,
-et fenêtre de détail.
+rappel sous le graphe (`Right-click a link: mute assets (saved in test
+file)` / `(saved in DB)` / `(temporary)`), entrées du menu, info-bulles des
+liens et fenêtre de détail.
 
 > Sans module Kraken sur le poste : comportement historique — les
 > désactivations sont **temporaires et en mémoire uniquement**, **rien n'est
@@ -669,7 +664,7 @@ rend exactement la disposition de départ.
 | Action                          | Effet                                      |
 |---------------------------------|--------------------------------------------|
 | **Clic** sur un lien            | Fenêtre de détail : assets transitant par le lien + outputs des deux scènes, avec versions |
-| **Clic droit** sur un lien      | **Mute/unmute** le lien — enregistré dans la base du studio via le module Kraken, sinon temporaire |
+| **Clic droit** sur un lien      | **Menu des couples** (version d'asset → scène) : mute/unmute un asset, ou *Mute all* / *Unmute all* |
 | **Glisser** un nœud             | Réordonner (déplacement **horizontal** seul)|
 | **Glisser la poignée** de ligne (à gauche) | **Réordonner les lignes** de tâche (vertical) |
 | **Survol** d'un nœud            | Dépendances directes + graphiste + inputs/outputs avec **format** `[abc]`, versions `(vXXX)` ou `(vXXX → vYYY)`, et **qui importe** chaque output |

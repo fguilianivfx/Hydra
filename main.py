@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -659,6 +660,7 @@ class MainWindow(QMainWindow):
         self.view.edge_selected.connect(self._on_edge_selected)
         self.view.links_changed.connect(self._on_links_changed)
         self.view.hidden_nodes_changed.connect(self._on_hidden_nodes_changed)
+        self.view.edge_menu_requested.connect(self._on_edge_menu)
         self.view.formats_changed.connect(self._rebuild_format_boxes)
         self.view.tasks_changed.connect(self._rebuild_task_boxes)
         self.view.filters_cleared.connect(self._on_link_filters_cleared)
@@ -1053,19 +1055,20 @@ class MainWindow(QMainWindow):
         if not self._mutes.available:
             if self._mutes.expected():
                 return (f"Kraken mutes module not loaded "
-                        f"({self._mutes.error}) — link mutes stay in memory.")
-            return "Link mutes stay in memory (no mutes backend configured)."
+                        f"({self._mutes.error}) — mutes stay in memory.")
+            return "Mutes stay in memory (no mutes backend configured)."
         scope = ("" if not self._restricted_sources()
                  else f", from {self._mute_sources_label()} only")
         if self._mutes.writes_to_db:
-            return f"Link mutes are written to the studio DB{scope}."
-        return (f"Test mode: link mutes go to {self._mutes.sandbox_file} "
-                f"(studio DB untouched){scope}.")
+            return (f"Mutes (asset version → scene) are written to the studio "
+                    f"DB{scope}.")
+        return (f"Test mode: mutes (asset version → scene) go to "
+                f"{self._mutes.sandbox_file} (studio DB untouched){scope}.")
 
     def _refresh_tip(self):
         """Rappel des raccourcis sous le graphe, accordé au mode des mutes."""
-        action = (f"mute (saved in {self._mutes.label})"
-                  if self._mutes_enabled() else "disable (temporary)")
+        action = (f"mute assets (saved in {self._mutes.label})"
+                  if self._mutes_enabled() else "mute assets (temporary)")
         self.lbl_tip.setText(
             "Hover: dependencies + artist · Click a link: details · "
             f"Right-click a link: {action} · Wheel: zoom · "
@@ -1080,80 +1083,129 @@ class MainWindow(QMainWindow):
             return
         target = self._mutes.label          # « DB » ou « test file »
         self.view.set_mute_backend(
-            self._edge_mute_backend,
-            action_text=f"Right-click: mute this link (saved in {target})",
+            self._couples_mute_backend,
+            action_text=f"Right-click: mute assets (saved in {target})",
             muted_text=f"MUTED (saved in {target}) — right-click to unmute",
             partial_text=f"— muted in {target}")
 
-    def _edge_mute_paths(self, edge_key):
-        """(chemin de la scène importatrice, [(libellé, chemin asset)…]).
+    # ------------------------------------------- menu du clic droit --------
+    def _couple_text(self, state):
+        """« chaise_anim [abc] (v012) » + marque d'état, pour le menu."""
+        text = _with_format(state["label"], state["fmt"])
+        version, _stale = _version_state(state["version"], state["latest"])
+        text = f"{text} {version}"
+        if state["stored"]:
+            return f"{text}  —  muted in {self._mutes.label}"
+        if state["muted"]:
+            return f"{text}  —  muted (session only)"
+        return text
 
-        Renvoie ``(None, raison)`` quand la source ne fournit pas tous les
-        chemins : ce lien reste alors mutable en mémoire seulement — les API
-        du module parlent en chemins bruts, on n'en reconstruit jamais.
+    def _build_edge_menu(self, edge_key):
+        """Menu des couples (version d'asset, scène) portés par un lien.
+
+        Un seul couple : une entrée, *Mute* ou *Unmute*. Plusieurs : une
+        entrée par couple, plus *Mute all* / *Unmute all*. Séparé de
+        ``_on_edge_menu`` pour être vérifiable sans ouvrir de fenêtre.
+        """
+        states = self.view.edge_couple_states(edge_key)
+        menu = QMenu(self)
+        result = self._graph_result
+        if result is not None and edge_key[1] in result.nodes:
+            title = menu.addAction(
+                f"{result.nodes[edge_key[0]].display_name}  →  "
+                f"{result.nodes[edge_key[1]].display_name}")
+            title.setEnabled(False)
+            menu.addSeparator()
+        if not states:
+            none = menu.addAction("No asset goes through this link")
+            none.setEnabled(False)
+            return menu
+
+        def act_for(ids, muted, text):
+            action = menu.addAction(text)
+            action.triggered.connect(
+                lambda _checked=False, i=tuple(ids), m=muted:
+                self.view.set_couples_muted(edge_key, i, m))
+            return action
+
+        if len(states) == 1:
+            state = states[0]
+            verb = "Unmute" if state["muted"] else "Mute"
+            act_for([state["id"]], not state["muted"],
+                    f"{verb}  {self._couple_text(state)}")
+            return menu
+        for state in states:
+            verb = "Unmute" if state["muted"] else "Mute"
+            action = act_for([state["id"]], not state["muted"],
+                             f"{verb}  {self._couple_text(state)}")
+            action.setCheckable(True)
+            action.setChecked(state["muted"])
+        menu.addSeparator()
+        ids = [s["id"] for s in states]
+        act_for(ids, True, f"Mute all ({len(ids)})").setEnabled(
+            not all(s["muted"] for s in states))
+        act_for(ids, False, f"Unmute all ({len(ids)})").setEnabled(
+            any(s["muted"] for s in states))
+        return menu
+
+    def _on_edge_menu(self, edge_key, global_pos):
+        """Ouvre le menu du clic droit sur un lien."""
+        self._build_edge_menu(edge_key).exec(global_pos)
+
+    def _mute_scene_path(self, edge_key):
+        """(chemin de la scène importatrice, '') ou ('', raison).
+
+        Le couple muté est (version d'asset, **scène enfant**) : c'est donc
+        le chemin du bas du lien qui compte. Sans chemin, rien n'est
+        enregistrable — les API du module parlent en chemins bruts, on n'en
+        reconstruit jamais.
         """
         result = self._graph_result
         if result is None:
-            return None, "no graph is displayed"
-        columns = ", ".join(ds._RAW_PATH_COLUMNS[:4]) + "…"
+            return "", "no graph is displayed"
         node = result.nodes.get(edge_key[1])
         scene_path = node.path if node is not None else ""
-        if not scene_path:
-            return None, (f"table \"scenes\" has no file path column "
-                          f"({columns}) in this source")
-        pairs = result.edge_asset_paths.get(edge_key, ())
-        if not pairs:
-            return None, "no asset goes through this link"
-        if any(not path for _label, path in pairs):
-            return None, (f"table \"assets\" has no file path column "
-                          f"({columns}) in this source")
-        return scene_path, self._with_folder_neighbours(pairs)
+        if scene_path:
+            return scene_path, ""
+        columns = ", ".join(ds._RAW_PATH_COLUMNS[:4]) + "…"
+        return "", (f"table \"scenes\" has no file path column "
+                    f"({columns}) in this source")
 
-    def _with_folder_neighbours(self, pairs):
-        """Ajoute les assets publiés dans les mêmes dossiers que ``pairs``.
+    def _couple_paths(self, edge_key, couple_ids=None):
+        """{id de couple: chemin publié} pour les couples demandés.
 
-        Le module de mutes résout un asset par **son dossier** : quand
-        plusieurs y sont publiés (deux exports du même asset, l'un depuis
-        Maya, l'autre depuis Houdini ; « chair » et « chair_v001 »…), il ne
-        peut pas les distinguer et refuse de choisir. On les mute donc tous,
-        ce qui est bien l'intention : c'est le même asset.
+        Un couple sans chemin (source sans colonne dédiée) est absent : il
+        restera mutable en mémoire seulement.
         """
-        folders = self._graph_result.folder_assets
-        by_path = {}
-        for label, path in pairs:
-            by_path[path] = label
-            for other_label, other_path in folders.get(
-                    ds.publish_folder(path), ()):
-                if other_path:
-                    by_path.setdefault(other_path, other_label)
-        return sorted((label, path) for path, label in by_path.items())
+        couples = self._graph_result.edge_couples.get(edge_key, ())
+        wanted = None if couple_ids is None else set(couple_ids)
+        return {cid: path for cid, _l, _v, _lat, _f, path in couples
+                if path and (wanted is None or cid in wanted)}
 
     def _compute_db_mutes(self, refresh=False):
-        """(liens muted, {lien: libellés muted isolément}) d'après la base.
+        """{lien: {couples mutés}} d'après la cible d'écriture.
 
-        Un lien est muted quand TOUS ses assets le sont pour la scène qui les
-        importe ; une partie seulement (mute posé depuis un autre outil) est
-        rendue dans ``partial`` pour être signalée au survol sans couper le
-        lien. Une seule lecture (``get_scene_mutes``) par scène importatrice.
+        Une seule lecture (``get_scene_mutes``) par scène importatrice, quel
+        que soit le nombre de liens qui y aboutissent.
         """
         result = self._graph_result
-        muted, partial = set(), {}
+        stored = {}
         refreshed = set()
-        for edge in result.edges:
-            scene_path, pairs = self._edge_mute_paths(edge)
-            if scene_path is None:
+        for edge_key in result.edge_couples:
+            scene_path, _why = self._mute_scene_path(edge_key)
+            if not scene_path:
+                continue
+            paths = self._couple_paths(edge_key)
+            if not paths:
                 continue
             entries = self._mutes.entries(
                 scene_path, refresh=refresh and scene_path not in refreshed)
             refreshed.add(scene_path)
-            flags = [(label, self._mutes.is_muted(scene_path, path, entries))
-                     for label, path in pairs]
-            if all(f for _label, f in flags):
-                muted.add(edge)
-            elif any(f for _label, f in flags):
-                partial[edge] = tuple(sorted(
-                    label for label, f in flags if f))
-        return muted, partial
+            muted = {cid for cid, path in paths.items()
+                     if self._mutes.is_muted(scene_path, path, entries)}
+            if muted:
+                stored[edge_key] = muted
+        return stored
 
     def _apply_db_mutes(self, refresh=False):
         """Resynchronise l'affichage depuis la cible ; rend le nb de liens muted.
@@ -1165,79 +1217,89 @@ class MainWindow(QMainWindow):
         if not self._mutes_enabled() or self._graph_result is None:
             return 0
         try:
-            muted, partial = self._compute_db_mutes(refresh=refresh)
+            stored = self._compute_db_mutes(refresh=refresh)
         except Exception as exc:
             self.statusBar().showMessage(
                 f"Mutes {self._mutes.label} unreachable: {exc}")
             return 0
-        self.view.apply_db_mutes(muted, partial)
-        return len(muted)
+        self.view.apply_db_mutes(stored)
+        return len(self.view.db_muted_edges())
 
-    def _edge_mute_backend(self, edge_key, disable):
-        """Écrit un mute/unmute de lien en base ; True si pris en charge.
+    def _couples_mute_backend(self, edge_key, couple_ids, disable):
+        """Enregistre le mute/unmute de couples précis ; True si pris en charge.
 
-        Un lien = un ``mute_asset``/``unmute_asset`` par asset transporté —
-        **et par voisin de publication**, le module résolvant par dossier
-        (voir ``_with_folder_neighbours``). Après chaque écriture la base est
-        relue (``get_scene_mutes``) : l'interface reflète ce qu'elle contient
-        vraiment, pas l'intention du clic (consigne du module).
+        Un couple = une **version d'asset** vers la **scène enfant** : un
+        ``mute_asset``/``unmute_asset`` par couple, avec le chemin de cette
+        scène. Après l'écriture la cible est relue (``get_scene_mutes``) :
+        l'affichage reflète ce qu'elle contient vraiment, pas l'intention du
+        clic (consigne du module).
         """
         if not self._mutes_enabled():
             self._mute_notice = (
-                "Link kept in memory only — mutes are saved from "
+                "Kept in memory only — mutes are saved from "
                 f"{self._mute_sources_label()} only.")
             return False
-        scene_path, pairs = self._edge_mute_paths(edge_key)
-        if scene_path is None:
+        scene_path, why = self._mute_scene_path(edge_key)
+        if not scene_path:
             # Affiché par _on_links_changed, qui suit le basculement local.
-            self._mute_notice = f"Link kept in memory only — {pairs}."
+            self._mute_notice = f"Kept in memory only — {why}."
+            return False
+        paths = self._couple_paths(edge_key, couple_ids)
+        missing = [cid for cid in couple_ids if cid not in paths]
+        if not paths:
+            columns = ", ".join(ds._RAW_PATH_COLUMNS[:4]) + "…"
+            self._mute_notice = (
+                f"Kept in memory only — table \"assets\" has no file path "
+                f"column ({columns}) in this source.")
             return False
         write = self._mutes.mute if disable else self._mutes.unmute
         error = ""
         # Le module journalise ses refus au lieu de lever : on les recueille
-        # pour pouvoir dire POURQUOI un asset n'a pas suivi.
+        # pour pouvoir dire POURQUOI un couple n'a pas suivi.
         with self._mutes.capture_messages() as messages:
             try:
-                for _label, path in pairs:
+                for path in paths.values():
                     write(scene_path, path)
             except Exception as exc:
                 error = str(exc) or exc.__class__.__name__
         self._apply_db_mutes(refresh=True)
         target = self._mutes.label
-        # Vérification asset par asset : un refus ne concerne souvent qu'une
-        # partie des chemins, et le lien ne doit pas être annoncé « muté ».
-        refused = self._refused_assets(scene_path, pairs, disable)
-        if error or refused:
+        # Vérification couple par couple : un refus ne porte souvent que sur
+        # une partie, et rien ne doit être annoncé comme enregistré à tort.
+        refused = self._refused_couples(edge_key, scene_path, paths, disable)
+        if error or refused or missing:
             # Le clic doit malgré tout produire son effet : on rend False pour
-            # que la vue applique le mute en mémoire. Le lien est donc bien
-            # coupé à l'écran — seul l'enregistrement a échoué, et le message
-            # dit lequel, pourquoi, et que ça ne survivra pas à la session.
+            # que la vue mute en mémoire ce qui n'a pas été enregistré.
             self._mute_notice = self._mute_failure_message(
-                target, pairs, refused, error, list(messages))
+                target, couple_ids, refused + missing, error, list(messages))
             return False
-        if disable:
-            self.statusBar().showMessage(
-                f"Link muted in {target} ({len(pairs)} asset(s)) — every "
-                "session will now start with it muted.")
-        else:
-            self.statusBar().showMessage(
-                f"Link unmuted in {target} ({len(pairs)} asset(s)).")
+        verb = "muted" if disable else "unmuted"
+        extra = (" — every session will now start with them muted."
+                 if disable else ".")
+        # Passe par _mute_notice comme les échecs : le rafraîchissement
+        # links_changed qui suit écraserait un showMessage direct.
+        self._mute_notice = (
+            f"{len(paths)} asset version(s) {verb} in {target} towards "
+            f"{self._graph_result.nodes[edge_key[1]].display_name}{extra}")
         return True
 
-    def _refused_assets(self, scene_path, pairs, disable):
-        """Libellés des assets dont l'état voulu n'a pas été enregistré."""
+    def _refused_couples(self, edge_key, scene_path, paths, disable):
+        """Libellés des couples dont l'état voulu n'a pas été enregistré."""
+        labels = {cid: label for cid, label, _v, _lat, _f, _p
+                  in self._graph_result.edge_couples.get(edge_key, ())}
         try:
             entries = self._mutes.entries(scene_path)
-            return [label for label, path in pairs
+            return [labels.get(cid, cid) for cid, path in paths.items()
                     if self._mutes.is_muted(scene_path, path, entries)
                     != disable]
         except Exception:
-            return [label for label, _path in pairs]
+            return [labels.get(cid, cid) for cid in paths]
 
-    def _mute_failure_message(self, target, pairs, refused, error, messages):
+    def _mute_failure_message(self, target, couple_ids, refused, error,
+                              messages):
         """Explique ce qui n'a pas été enregistré, et si possible pourquoi."""
-        head = (f"{len(refused)}/{len(pairs)} asset(s) not recorded in the "
-                f"{target}: {', '.join(refused[:3])}"
+        head = (f"{len(refused)}/{len(couple_ids)} asset version(s) not "
+                f"recorded in the {target}: {', '.join(refused[:3])}"
                 + ("…" if len(refused) > 3 else "")
                 if refused else
                 f"The mutes {target} did not record the change")
@@ -1646,7 +1708,8 @@ class MainWindow(QMainWindow):
         if self._link_dialog is None:
             self._link_dialog = LinkDetailsDialog(self)
         self._link_dialog.set_context(
-            "Right-click a link in the graph to mute/unmute it. "
+            "Right-click a link in the graph to mute/unmute the asset "
+            "versions it carries, one by one or all at once. "
             + self._mute_mode_message(), self._mutes.label)
         self._link_dialog.show_link(info)
 
@@ -1657,14 +1720,28 @@ class MainWindow(QMainWindow):
             "scene)." if hidden_count else "")
 
     def _on_links_changed(self, disabled_count):
-        """Un lien a changé d'état (clic droit, mute en base ou filtre)."""
+        """Un couple ou un filtre a changé : résume l'état des liens.
+
+        Un mute de couple ne coupe pas forcément un lien (il en faut *tous*
+        les couples) : le compte de liens coupés ne suffit donc pas à décrire
+        ce qui vient de se passer — d'où le message posé par le backend.
+        """
         notice, self._mute_notice = self._mute_notice, ""
-        if not disabled_count:
-            self.statusBar().showMessage("All links enabled.")
-            return
         if notice:
-            message = f"{notice} ({disabled_count} link(s) disabled)"
-        elif self._mutes_enabled():
+            tail = (f" ({disabled_count} link(s) disabled)" if disabled_count
+                    else "")
+            self.statusBar().showMessage(notice + tail)
+            return
+        if not disabled_count:
+            muted = sum(len(ids)
+                        for ids in self.view.memory_muted_couples().values())
+            muted += sum(len(self.view.stored_couple_ids(key))
+                         for key in self.view.db_muted_edges() or ())
+            self.statusBar().showMessage(
+                f"{muted} asset version(s) muted — no link fully cut."
+                if muted else "All links enabled.")
+            return
+        if self._mutes_enabled():
             db_count = len(self.view.db_muted_edges())
             tail = (f" ({db_count} saved in {self._mutes.label})"
                     if db_count else "")

@@ -247,23 +247,28 @@ class EdgeItem(QGraphicsPathItem):
         lines = [self.src.node.display_name,
                  f"→ {self.dst.node.display_name}",
                  f"This link: {carried}"]
-        # Mutes lus depuis la cible : un asset muted isolément (posé par un
-        # autre outil) ne coupe pas le lien, mais est signalé ligne à ligne.
+        # Chaque couple (version d'asset, scène) porte son propre état : muté
+        # en mémoire, muté et enregistré, ou actif.
         view = self._view
-        db_partial = getattr(view, "_db_partial", {}).get(self.key, ())
-        in_db = self.key in getattr(view, "_db_muted", ())
         partial_text = getattr(view, "_mute_partial_text", "") or "— muted"
-        details = self.details()
-        if details:
-            lines.append(f"Assets through this link ({len(details)}):")
-            for label, cur, latest, fmt in details:
-                mark = f"  {partial_text}" if label in db_partial else ""
-                lines.append(
-                    f"  {label}{_fmt_tag(fmt)} {_vstate(cur, latest)}{mark}")
+        states = (view.edge_couple_states(self.key)
+                  if view is not None else [])
+        stored_all = bool(states) and all(c["stored"] for c in states)
+        if states:
+            lines.append(f"Assets through this link ({len(states)}):")
+            for c in states:
+                if c["stored"]:
+                    mark = f"  {partial_text}"
+                elif c["muted"]:
+                    mark = "  — muted (session only)"
+                else:
+                    mark = ""
+                lines.append(f"  {c['label']}{_fmt_tag(c['fmt'])} "
+                             f"{_vstate(c['version'], c['latest'])}{mark}")
         muted_text = getattr(view, "_mute_muted_text", "")
         action_text = getattr(view, "_mute_action_text", "")
         if self.disabled:
-            lines.append(muted_text if (in_db and muted_text)
+            lines.append(muted_text if (stored_all and muted_text)
                          else "DISABLED — right-click to re-enable")
         else:
             lines.append("Click: details · "
@@ -329,7 +334,9 @@ class EdgeItem(QGraphicsPathItem):
             super().mousePressEvent(event)
             return
         if event.button() == Qt.RightButton:
-            self._view.toggle_edge_disabled(self)
+            # Le clic droit ouvre le menu des couples de ce lien : muter tout
+            # d'un coup n'est plus qu'une de ses entrées.
+            self._view.request_edge_menu(self, event.screenPos())
             event.accept()
             return
         if event.button() == Qt.LeftButton:
@@ -727,6 +734,9 @@ class DependencyGraphView(QGraphicsView):
     formats_changed = Signal(object)
     # Idem pour les tasks présentes, dans l'ordre des lignes (haut -> bas).
     tasks_changed = Signal(object)
+    # Clic droit sur un lien : (clé du lien, position écran). MainWindow y
+    # construit le menu des couples — la vue ne connaît pas la cible d'écriture.
+    edge_menu_requested = Signal(object, object)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -754,15 +764,14 @@ class DependencyGraphView(QGraphicsView):
         self._zoom = 1.0
         self._result = None         # graph_model.GraphResult courant
         self._selected_edge = None
-        # Liens désactivés localement : en mémoire uniquement, remis à zéro à
-        # chaque nouveau graphe. C'est le seul mode quand la persistance
-        # (module Kraken) n'est pas disponible.
-        self._disabled_edges = set()
-        # Mutes lus en base (module studio) : liens dont TOUS les assets sont
-        # muted pour la scène importatrice, et libellés muted isolément
-        # (mute partiel posé depuis un autre outil, signalé au survol).
-        self._db_muted = set()
-        self._db_partial = {}
+        # L'unité mutée est le COUPLE (version d'asset, scène) : chaque lien
+        # en porte un ou plusieurs, et n'est coupé que lorsque TOUS les siens
+        # le sont. Deux origines, distinguées pour l'affichage :
+        #   * mémoire : perdu au prochain graphe (mode sans persistance, ou
+        #     repli quand l'enregistrement échoue) ;
+        #   * enregistré : lu depuis la cible (fichier d'essai ou base).
+        self._muted_couples = defaultdict(set)   # edge_key -> {couple_id}
+        self._stored_couples = {}                # edge_key -> frozenset(ids)
         # Branché par MainWindow quand la persistance est disponible :
         # backend(edge_key, disable) -> True si l'écriture est prise en charge
         # (l'état affiché est ensuite relu depuis la cible). Les libellés
@@ -795,11 +804,10 @@ class DependencyGraphView(QGraphicsView):
         self._sep_label = None
         self._result = None
         self._selected_edge = None
-        # Les désactivations locales sont perdues dès que le graphe change ;
-        # les mutes enregistrés en base seront relus par MainWindow.
-        self._disabled_edges = set()
-        self._db_muted = set()
-        self._db_partial = {}
+        # Les mutes en mémoire sont perdus dès que le graphe change ; ceux
+        # enregistrés seront relus par MainWindow.
+        self._muted_couples = defaultdict(set)
+        self._stored_couples = {}
 
     def set_graph(self, result):
         """Affiche un graph_model.GraphResult."""
@@ -913,7 +921,8 @@ class DependencyGraphView(QGraphicsView):
             "parent_status": edge.src.node.status,
             "child_status": edge.dst.node.status,
             "disabled": edge.disabled,
-            "db_muted": edge.key in self._db_muted,
+            "db_muted": edge.key in self.db_muted_edges(),
+            "couples": self.edge_couple_states(edge.key),
             "carries_stale": edge.carries_stale,
             # Assets exportés par le parent et importés par l'enfant.
             "assets": list(details),
@@ -927,10 +936,10 @@ class DependencyGraphView(QGraphicsView):
                          partial_text=""):
         """Branche l'écriture persistante des mutes (None = mémoire seule).
 
-        ``backend(edge_key, disable)`` doit rendre True quand il a écrit puis
-        resynchronisé l'affichage via :meth:`apply_db_mutes` ; False fait
-        retomber ce lien sur le mode mémoire historique. Les trois libellés
-        décrivent la cible dans les info-bulles (base, fichier d'essai…).
+        ``backend(edge_key, couple_ids, disable)`` doit rendre True quand il a
+        écrit puis resynchronisé l'affichage via :meth:`apply_db_mutes` ;
+        False fait retomber ces couples sur le mode mémoire. Les trois
+        libellés décrivent la cible dans les info-bulles.
         """
         self._mute_backend = backend
         self._mute_action_text = action_text
@@ -939,67 +948,121 @@ class DependencyGraphView(QGraphicsView):
         for edge in self._edges:
             edge.refresh_appearance()
 
-    def toggle_edge_disabled(self, edge):
-        """Mute/unmute un lien : en base si un backend est branché, sinon en
-        mémoire (comportement historique)."""
-        disable = edge.key not in (self._disabled_edges | self._db_muted)
-        if self._mute_backend is not None \
-                and self._mute_backend(edge.key, disable):
-            # Le backend a écrit puis relu la base (apply_db_mutes) : l'état
-            # affiché vient d'elle, pas de l'intention du clic.
-            if edge is self._selected_edge:
-                self.edge_selected.emit(self.edge_info(edge))
+    def request_edge_menu(self, edge, screen_pos):
+        """Demande le menu contextuel d'un lien (construit par MainWindow)."""
+        self.edge_menu_requested.emit(edge.key, screen_pos.toPoint())
+
+    # --- couples (version d'asset, scène) -----------------------------------
+    def edge_couples(self, edge_key):
+        """Couples portés par un lien, tels que fournis par le modèle."""
+        if self._result is None:
+            return ()
+        return self._result.edge_couples.get(edge_key, ())
+
+    def couple_ids(self, edge_key):
+        return {c[0] for c in self.edge_couples(edge_key)}
+
+    def muted_couple_ids(self, edge_key):
+        """Couples mutés d'un lien, mémoire **et** enregistrés confondus."""
+        return (set(self._muted_couples.get(edge_key, ()))
+                | set(self._stored_couples.get(edge_key, ())))
+
+    def stored_couple_ids(self, edge_key):
+        return set(self._stored_couples.get(edge_key, ()))
+
+    def is_couple_muted(self, edge_key, couple_id):
+        return couple_id in self.muted_couple_ids(edge_key)
+
+    def edge_couple_states(self, edge_key):
+        """État de chaque couple d'un lien, pour le menu du clic droit."""
+        muted = self.muted_couple_ids(edge_key)
+        stored = self.stored_couple_ids(edge_key)
+        return [{"id": cid, "label": label, "version": version,
+                 "latest": latest, "fmt": fmt, "path": path,
+                 "muted": cid in muted, "stored": cid in stored}
+                for cid, label, version, latest, fmt, path
+                in self.edge_couples(edge_key)]
+
+    def edge_is_cut(self, edge_key):
+        """Vrai si TOUS les couples du lien sont mutés (le lien ne passe plus)."""
+        ids = self.couple_ids(edge_key)
+        return bool(ids) and ids <= self.muted_couple_ids(edge_key)
+
+    def set_couples_muted(self, edge_key, couple_ids, muted):
+        """Mute/unmute des couples précis d'un lien.
+
+        Passe par le backend s'il y en a un ; ce qu'il n'a pas pris en charge
+        retombe en mémoire, pour que le clic produise toujours son effet.
+        """
+        wanted = set(couple_ids) & self.couple_ids(edge_key)
+        if not wanted:
             return
-        if disable:
-            self._disabled_edges.add(edge.key)
-        else:
-            self._disabled_edges.discard(edge.key)
-            if self._mute_backend is None:
-                # Repli : ne jamais laisser un lien bloqué si aucun backend
-                # n'est branché. Avec un backend, l'état enregistré fait foi —
-                # un unmute refusé doit rester visible, pas être effacé.
-                self._db_muted.discard(edge.key)
+        handled = (self._mute_backend is not None
+                   and self._mute_backend(edge_key, sorted(wanted), muted))
+        if not handled:
+            local = self._muted_couples[edge_key]
+            if muted:
+                local |= wanted
+            else:
+                local -= wanted
+                if not local:
+                    self._muted_couples.pop(edge_key, None)
         self._apply_status_recompute()
-        if edge is self._selected_edge:
+        edge = next((e for e in self._edges if e.key == edge_key), None)
+        if edge is not None and edge is self._selected_edge:
             self.edge_selected.emit(self.edge_info(edge))
         self.links_changed.emit(len(self._effective_disabled()))
 
-    def apply_db_mutes(self, muted, partial=None):
-        """Applique l'état lu en base : liens muted + assets muted isolés.
+    def toggle_edge_disabled(self, edge):
+        """Bascule le lien entier : tous ses couples d'un coup."""
+        self.set_couples_muted(edge.key, self.couple_ids(edge.key),
+                               not self.edge_is_cut(edge.key))
 
-        ``muted`` : clés des liens dont TOUS les assets sont muted pour la
-        scène importatrice ; ``partial`` : {clé: (libellés muted,)} quand une
-        partie seulement l'est (posée depuis un autre outil) — signalée dans
-        l'info-bulle du lien, sans couper le lien.
+    def apply_db_mutes(self, stored):
+        """Applique l'état lu depuis la cible : {lien: {couples mutés}}.
+
+        Un lien n'est coupé que si TOUS ses couples y figurent ; les autres
+        sont signalés un à un dans l'info-bulle, sans couper le lien.
         """
-        muted = set(muted)
-        partial = {key: tuple(labels) for key, labels in (partial or {}).items()}
-        if muted == self._db_muted and partial == self._db_partial:
+        stored = {key: frozenset(ids) for key, ids in (stored or {}).items()
+                  if ids}
+        if stored == self._stored_couples:
             return
-        self._db_muted = muted
-        self._db_partial = partial
-        # Un lien muted en base n'a plus besoin de son doublon local.
-        self._disabled_edges -= muted
+        self._stored_couples = stored
+        # Un couple enregistré n'a plus besoin de son doublon en mémoire.
+        for key, ids in stored.items():
+            local = self._muted_couples.get(key)
+            if local:
+                local -= set(ids)
+                if not local:
+                    self._muted_couples.pop(key, None)
         self._apply_status_recompute()
         if self._selected_edge is not None:
             self.edge_selected.emit(self.edge_info(self._selected_edge))
         self.links_changed.emit(len(self._effective_disabled()))
 
     def db_muted_edges(self):
-        """Clés des liens muted d'après la base (copie)."""
-        return set(self._db_muted)
+        """Liens dont TOUS les couples sont enregistrés comme mutés."""
+        return {key for key in self._stored_couples
+                if self.couple_ids(key) <= set(self._stored_couples[key])
+                and self.couple_ids(key)}
+
+    def memory_muted_couples(self):
+        """Couples mutés en mémoire seulement (copie), pour diagnostic."""
+        return {key: set(ids) for key, ids in self._muted_couples.items()
+                if ids}
 
     def enable_all_links(self):
-        """Réactive liens désactivés localement **et** filtres.
+        """Lève les mutes en mémoire **et** les filtres.
 
-        Les mutes enregistrés en base ne sont PAS touchés : ils se retirent
-        un par un (clic droit), jamais en masse — c'est un choix partagé
+        Les mutes enregistrés ne sont PAS touchés : ils se retirent couple par
+        couple (menu du clic droit), jamais en masse — c'est un choix partagé
         entre sessions et entre outils.
         """
-        if not (self._disabled_edges or self._mute_same_task
+        if not (self._muted_couples or self._mute_same_task
                 or self._muted_formats or self._muted_tasks):
             return
-        self._disabled_edges.clear()
+        self._muted_couples.clear()
         had_filters = (self._mute_same_task or self._muted_formats
                        or self._muted_tasks)
         self._mute_same_task = False
@@ -1112,9 +1175,16 @@ class DependencyGraphView(QGraphicsView):
                     cut.add((top, bottom))
         return cut
 
+    def _cut_edges(self):
+        """Liens dont tous les couples sont mutés (mémoire ou enregistrés)."""
+        if self._result is None:
+            return set()
+        return {key for key in self._result.edge_couples
+                if self.edge_is_cut(key)}
+
     def _effective_disabled(self):
-        """Liens réellement inactifs : clic droit, mutes en base et filtres."""
-        return self._disabled_edges | self._db_muted | self._filtered_edges()
+        """Liens réellement inactifs : couples mutés **et** filtres."""
+        return self._cut_edges() | self._filtered_edges()
 
     def _refresh_output_visibility(self):
         """Retire des rectangles les outputs qui ne circulent plus.
