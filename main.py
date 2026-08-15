@@ -14,10 +14,11 @@ Packaging (Windows) :
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -153,7 +154,8 @@ def _version_state(current, latest):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, scene=""):
+        """``scene`` : nom passé en ligne de commande (-sc), graphé au lancement."""
         super().__init__()
         self.setWindowTitle("Dedale — Scene Dependency Graph")
         icon = app_icon()
@@ -196,6 +198,20 @@ class MainWindow(QMainWindow):
         if self.tabs.currentIndex() == 0:
             self._refresh_mysql_status()
         self.statusBar().showMessage(self._mute_mode_message())
+        # Scène passée en ligne de commande : elle l'emporte sur celle
+        # mémorisée, et le graphe part dès que la fenêtre est à l'écran (le
+        # chargement peut durer, autant qu'il se voie).
+        scene = (scene or "").strip()
+        if scene:
+            self.scene_edit.setText(scene)
+            self.tool_tabs.setCurrentIndex(0)
+            QTimer.singleShot(0, self.graph_startup_scene)
+
+    def graph_startup_scene(self):
+        """Graphe la scène demandée au lancement (-sc)."""
+        self.statusBar().showMessage(
+            f"Graphing \"{self.scene_edit.text().strip()}\"…")
+        self._on_grapher()
 
     # ------------------------------------------------------------------ UI --
     def _build_ui(self):
@@ -1833,15 +1849,35 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
-def main():
+def parse_args(args):
+    """(options, arguments restants) de la ligne de commande.
+
+    Les arguments inconnus sont **rendus tels quels** à Qt (``-platform``,
+    ``-style``…) plutôt que rejetés : l'outil peut ainsi se lancer avec les
+    options habituelles d'une application Qt.
+    """
+    parser = argparse.ArgumentParser(
+        prog="main.py", add_help=True,
+        description="Dedale — graphe interactif de dépendances de scènes.")
+    parser.add_argument(
+        "-sc", "--scene", metavar="NOM", default="",
+        help="graphe cette scène au démarrage "
+             "(ex. qua_077_02000_comp_v022) ; sans elle, l'outil se lance "
+             "comme d'habitude")
+    return parser.parse_known_args(args)
+
+
+def main(argv=None):
+    argv = list(sys.argv if argv is None else argv)
+    options, qt_args = parse_args(argv[1:])
     _set_windows_app_id()          # avant toute fenêtre
-    app = QApplication(sys.argv)
+    app = QApplication(argv[:1] + qt_args)
     app.setApplicationName("Dedale — Dependency Graph")
     icon = app_icon()
     if not icon.isNull():
         # Au niveau application : hérité par la fenêtre et les dialogues.
         app.setWindowIcon(icon)
-    win = MainWindow()
+    win = MainWindow(scene=options.scene)
     win.show()
     sys.exit(app.exec())
 

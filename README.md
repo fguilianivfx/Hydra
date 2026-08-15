@@ -78,6 +78,28 @@ scène) à **gauche**, le graphe à **droite**.
 2. Saisissez le **nom de la scène**, ex. `qua_077_02000_comp_v019`.
 3. Cliquez **Grapher**.
 
+### Grapher une scène au lancement (`-sc`)
+
+```bat
+C:\Python39\python.exe .\main.py -sc qua_077_02000_comp_v022
+```
+
+L'outil s'ouvre avec la scène **déjà graphée** : le nom est saisi, l'onglet
+*Scene to graph* est au premier plan et le graphe part dès que la fenêtre est
+à l'écran (le chargement se voit donc, au lieu d'un démarrage figé).
+`--scene` est accepté comme forme longue.
+
+* **sans `-sc`, rien ne change** : l'outil se lance exactement comme
+  aujourd'hui, sur la dernière scène saisie, sans grapher ;
+* la scène passée en ligne de commande **l'emporte** sur celle mémorisée dans
+  les réglages ;
+* la **source de données** reste celle de la dernière session (onglet et
+  chemins mémorisés) — `-sc` ne choisit que la scène ;
+* un nom introuvable affiche l'erreur habituelle et **laisse l'outil
+  utilisable** : on corrige la saisie et on regraphe ;
+* les autres arguments sont **transmis à Qt** (`-platform`, `-style`…) plutôt
+  que rejetés, et `-h` affiche l'aide.
+
 ### Packaging (exécutable Windows)
 
 Placez **`Dedale.ico`** à côté de `main.py`, puis :
@@ -686,7 +708,7 @@ rend exactement la disposition de départ.
 
 | Fichier           | Rôle                                                         |
 |-------------------|-------------------------------------------------------------|
-| `main.py`         | Point d'entrée, fenêtre principale, panneau de source, UI.  |
+| `main.py`         | Point d'entrée (option `-sc`), fenêtre principale, panneau de source, UI. |
 | `data_source.py`  | `load_from_mysql` / `load_from_csv` / `load_from_sql_dump`. |
 | `graph_model.py`  | Résolution du nom, parcours scenes+binds, regroupement, statut, disposition. |
 | `graph_view.py`   | `QGraphicsScene`/`QGraphicsView`, items nœud & arête, drag horizontal, survol, zoom/pan. |
