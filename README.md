@@ -531,8 +531,7 @@ commandent cela.
 
 Le fichier d'essai est `DEDALE_MUTES_SANDBOX_FILE` s'il est défini, sinon
 `~/.dedale/mutes_sandbox.json` ; **le supprimer remet l'essai à zéro**. Son
-chemin est rappelé dans la barre d'état au lancement et dans la fenêtre de
-détail d'un lien.
+chemin est rappelé dans la barre d'état au lancement.
 
 **2. Depuis quelle source** — `DEDALE_MUTES_SOURCES` (défaut : **`all`**).
 Restreindre à `sql` (ou à une liste, `sql,mysql`) fait que seuls les graphes
@@ -550,8 +549,8 @@ set DEDALE_MUTES_TARGET=db
 
 L'interface dit toujours dans quel régime on est : ligne d'état au lancement,
 rappel sous le graphe (`Right-click a link: mute assets (saved in test
-file)` / `(saved in DB)` / `(temporary)`), entrées du menu, info-bulles des
-liens et fenêtre de détail.
+file)` / `(saved in DB)` / `(temporary)`), entrées du menu et info-bulles des
+liens.
 
 > Sans module Kraken sur le poste : comportement historique — les
 > désactivations sont **temporaires et en mémoire uniquement**, **rien n'est
@@ -604,7 +603,7 @@ n'apparaît pas.
 ses *outputs* avec le format entre crochets et l'état de version
 (`077_02000_shading · chaise_shd [rs] (v002)`,
 `quasimodo [abc] (v012 → v014)`). Survoler un **lien** liste les assets qui y
-transitent, avec le même détail ; la fenêtre ouverte au clic les reprend aussi.
+transitent, avec le même détail, et le menu du clic droit les reprend aussi.
 Un format inconnu n'affiche pas de crochets vides.
 
 > Le rectangle de la **scène interrogée** ne liste pas ses propres outputs (le
@@ -616,17 +615,19 @@ indépendamment. Contrairement au clic droit, ces filtres n'écrivent
 **jamais** dans la base : ce sont des réglages d'affichage locaux, perdus à
 la fermeture.
 
-**Couper un lien retire aussi son contenu des rectangles.** Un output ne
-reste listé que s'il alimente encore la scène interrogée : il faut qu'au moins
-un consommateur y soit relié par un lien **actif** et garde lui-même un
-**chemin actif** jusqu'à elle. Couper une branche **en aval** suffit donc : le
-`matlib` de la v048, importé par la seule v049, s'efface dès que la v049 est
-coupée du graphe — que ce soit par *Mute same task connections*, un filtre de
-format ou un clic droit plus bas — tandis que celui que le plan importe reste.
-La boîte rétrécit d'autant, son info-bulle suit, et l'affichage ou non des
-branches coupées (*Show disable branches*) ne change rien au contenu des
-boîtes. Un output sans consommateur connu n'est jamais masqué, et tout
-rétablir rend les boîtes à l'identique.
+**Les rectangles listent les assets réellement connectés en output — sauf
+ceux mutés.** Le tri se fait **couple par couple**, pas lien par lien : une
+ligne disparaît quand **tous** les couples qui la transportent sont mutés,
+coupés par un filtre, ou aboutissent à une scène qui n'a plus de chemin actif
+jusqu'à la scène interrogée. Muter un seul asset d'un lien retire donc **sa
+seule ligne** et laisse les autres — le lien, lui, reste visible tant qu'il
+transporte encore quelque chose. Couper une branche **en aval** suffit aussi :
+le `matlib` de la v048, importé par la seule v049, s'efface dès que la v049
+est coupée du graphe, tandis que celui que le plan importe reste. La boîte
+rétrécit d'autant, son info-bulle suit, et l'affichage ou non des branches
+coupées (*Show disable branches*) ne change rien au contenu des boîtes. Un
+output sans consommateur connu n'est jamais masqué, et tout démuter rend les
+boîtes à l'identique.
 
 **Show tasks** — seconde liste **dynamique**, sous celle des formats : une case
 par task présente dans le graphe, **dans l'ordre des lignes** (haut → bas :
@@ -663,7 +664,7 @@ rend exactement la disposition de départ.
 
 | Action                          | Effet                                      |
 |---------------------------------|--------------------------------------------|
-| **Clic** sur un lien            | Fenêtre de détail : assets transitant par le lien + outputs des deux scènes, avec versions |
+| **Clic** sur un lien            | Met le lien en évidence (le détail est au survol et dans le menu) |
 | **Clic droit** sur un lien      | **Menu des couples** (version d'asset → scène) : mute/unmute un asset, ou *Mute all* / *Unmute all* |
 | **Glisser** un nœud             | Réordonner (déplacement **horizontal** seul)|
 | **Glisser la poignée** de ligne (à gauche) | **Réordonner les lignes** de tâche (vertical) |

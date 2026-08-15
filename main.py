@@ -22,7 +22,6 @@ from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
-    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -153,87 +152,6 @@ def _version_state(current, latest):
     return f"({cur})", False
 
 
-class LinkDetailsDialog(QDialog):
-    """Détail d'un lien sélectionné : assets transitant, inputs et outputs."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Link details")
-        self.resize(460, 420)
-        self.setModal(False)
-
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(12, 12, 12, 12)
-        lay.setSpacing(8)
-
-        self._header = QLabel()
-        self._header.setWordWrap(True)
-        self._header.setTextFormat(Qt.RichText)
-        lay.addWidget(self._header)
-
-        self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["Asset", "Version"])
-        self._tree.setRootIsDecorated(True)
-        self._tree.setAlternatingRowColors(True)
-        self._tree.setColumnWidth(0, 280)
-        lay.addWidget(self._tree, 1)
-
-        self._hint = QLabel()
-        self._hint.setStyleSheet("color:#8a93a0;")
-        self._hint.setWordWrap(True)
-        lay.addWidget(self._hint)
-        self._target_label = "DB"
-
-    def set_context(self, hint, target_label):
-        """Rappelle où vont les mutes (bac à sable, base, ou mémoire)."""
-        self._hint.setText(hint)
-        self._target_label = target_label
-
-    def show_link(self, info):
-        state = ""
-        if info["disabled"]:
-            state = (f"  —  <b>MUTED (saved in {self._target_label})</b>"
-                     if info.get("db_muted") else "  —  <b>DISABLED</b>")
-        if info["carries_stale"]:
-            verdict = ("<span style='color:#b4392c;'>This link carries an "
-                       "outdated asset.</span>")
-        else:
-            verdict = ("<span style='color:#1c7a44;'>All assets through this "
-                       "link are up to date.</span>")
-        self._header.setText(
-            f"<b>{info['parent']}</b><br>&nbsp;&nbsp;↓ feeds<br>"
-            f"<b>{info['child']}</b>{state}<br>{verdict}")
-
-        self._tree.clear()
-        # 1) ce qui transite réellement par ce lien.
-        flowing = QTreeWidgetItem(
-            self._tree, [f"Assets through this link ({len(info['assets'])})", ""])
-        flowing.setExpanded(True)
-        for label, cur, latest, fmt in info["assets"]:
-            text, stale = _version_state(cur, latest)
-            item = QTreeWidgetItem(flowing, [_with_format(label, fmt), text])
-            if stale:
-                item.setForeground(1, QColor("#b4392c"))
-            else:
-                item.setForeground(1, QColor("#1c7a44"))
-
-        # 2) rappel des outputs de chaque extrémité.
-        self._add_outputs("Outputs of " + info["parent"],
-                          info["parent_outputs"], info["parent_version"])
-        self._add_outputs("Outputs of " + info["child"],
-                          info["child_outputs"], info["child_version"])
-        self.show()
-        self.raise_()
-
-    def _add_outputs(self, title, outputs, version):
-        root = QTreeWidgetItem(self._tree, [f"{title} ({len(outputs)})", ""])
-        for name, latest, fmt in outputs:
-            text, stale = _version_state(version, latest)
-            item = QTreeWidgetItem(root, [_with_format(name, fmt), text])
-            item.setForeground(1, QColor("#b4392c") if stale
-                               else QColor("#1c7a44"))
-
-
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -247,7 +165,6 @@ class MainWindow(QMainWindow):
         self._migrate_legacy_settings()
         # Cache des données par signature de source (en mémoire uniquement).
         self._data_cache = {}
-        self._link_dialog = None
         # Résultat du graphe affiché (chemins scène/assets des liens : sert à
         # la persistance des mutes), et source dont il provient.
         self._graph_result = None
@@ -657,7 +574,6 @@ class MainWindow(QMainWindow):
         lay.setContentsMargins(6, 10, 10, 6)
         lay.setSpacing(6)
         self.view = DependencyGraphView()
-        self.view.edge_selected.connect(self._on_edge_selected)
         self.view.links_changed.connect(self._on_links_changed)
         self.view.hidden_nodes_changed.connect(self._on_hidden_nodes_changed)
         self.view.edge_menu_requested.connect(self._on_edge_menu)
@@ -1070,7 +986,7 @@ class MainWindow(QMainWindow):
         action = (f"mute assets (saved in {self._mutes.label})"
                   if self._mutes_enabled() else "mute assets (temporary)")
         self.lbl_tip.setText(
-            "Hover: dependencies + artist · Click a link: details · "
+            "Hover: dependencies + artist · Click a link: highlight · "
             f"Right-click a link: {action} · Wheel: zoom · "
             "Middle button: pan · Drag a node: horizontal · "
             "Drag a row handle: reorder tasks")
@@ -1703,16 +1619,6 @@ class MainWindow(QMainWindow):
         self._on_grapher()
 
     # ------------------------------------------------------------- links ---
-    def _on_edge_selected(self, info):
-        """Affiche le détail du lien cliqué (fenêtre non modale)."""
-        if self._link_dialog is None:
-            self._link_dialog = LinkDetailsDialog(self)
-        self._link_dialog.set_context(
-            "Right-click a link in the graph to mute/unmute the asset "
-            "versions it carries, one by one or all at once. "
-            + self._mute_mode_message(), self._mutes.label)
-        self._link_dialog.show_link(info)
-
     def _on_hidden_nodes_changed(self, hidden_count):
         """Rappelle combien de nœuds sont masqués par l'option d'affichage."""
         self.lbl_hidden.setText(

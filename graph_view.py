@@ -276,8 +276,8 @@ class EdgeItem(QGraphicsPathItem):
             lines.append(muted_text if (stored_all and muted_text)
                          else "DISABLED — right-click to re-enable")
         else:
-            lines.append("Click: details · "
-                         + (action_text or "Right-click: disable this link"))
+            lines.append(action_text
+                         or "Right-click: mute the assets on this link")
         self.setToolTip("\n".join(lines))
         self.update()
 
@@ -726,8 +726,6 @@ class RowHeaderItem(QGraphicsObject):
 class DependencyGraphView(QGraphicsView):
     """QGraphicsView avec zoom molette, pan bouton du milieu, survol."""
 
-    # Émis au clic sur un lien : dict décrivant le lien sélectionné.
-    edge_selected = Signal(object)
     # Émis quand des liens sont désactivés/réactivés (nb de liens désactivés).
     links_changed = Signal(int)
     # Émis quand des nœuds sont masqués/réaffichés (nb de nœuds masqués).
@@ -902,40 +900,16 @@ class DependencyGraphView(QGraphicsView):
 
     # --- liens : sélection et désactivation temporaire ----------------------
     def select_edge(self, edge):
-        """Sélectionne un lien et publie son détail (inputs/outputs)."""
+        """Met un lien en évidence (le détail est dans le menu et le survol)."""
         if self._selected_edge is not None and self._selected_edge is not edge:
             self._selected_edge.set_selected(False)
         edge.set_selected(True)
         self._selected_edge = edge
-        self.edge_selected.emit(self.edge_info(edge))
 
     def clear_edge_selection(self):
         if self._selected_edge is not None:
             self._selected_edge.set_selected(False)
             self._selected_edge = None
-
-    def edge_info(self, edge):
-        """Décrit un lien : scènes reliées et assets qui y transitent."""
-        details = []
-        if self._result is not None:
-            details = self._result.edge_details.get(edge.key, [])
-        return {
-            "key": edge.key,
-            "parent": edge.src.node.display_name,
-            "child": edge.dst.node.display_name,
-            "parent_status": edge.src.node.status,
-            "child_status": edge.dst.node.status,
-            "disabled": edge.disabled,
-            "db_muted": edge.key in self.db_muted_edges(),
-            "couples": self.edge_couple_states(edge.key),
-            "carries_stale": edge.carries_stale,
-            # Assets exportés par le parent et importés par l'enfant.
-            "assets": list(details),
-            "parent_outputs": list(edge.src.node.outputs),
-            "parent_version": edge.src.node.version,
-            "child_outputs": list(edge.dst.node.outputs),
-            "child_version": edge.dst.node.version,
-        }
 
     def set_mute_backend(self, backend, action_text="", muted_text="",
                          partial_text=""):
@@ -1018,9 +992,6 @@ class DependencyGraphView(QGraphicsView):
                 if not local:
                     self._muted_couples.pop(edge_key, None)
         self._apply_status_recompute()
-        edge = next((e for e in self._edges if e.key == edge_key), None)
-        if edge is not None and edge is self._selected_edge:
-            self.edge_selected.emit(self.edge_info(edge))
         self.links_changed.emit(len(self._effective_disabled()))
 
     def toggle_edge_disabled(self, edge):
@@ -1047,8 +1018,6 @@ class DependencyGraphView(QGraphicsView):
                 if not local:
                     self._muted_couples.pop(key, None)
         self._apply_status_recompute()
-        if self._selected_edge is not None:
-            self.edge_selected.emit(self.edge_info(self._selected_edge))
         self.links_changed.emit(len(self._effective_disabled()))
 
     def db_muted_edges(self):
@@ -1197,25 +1166,27 @@ class DependencyGraphView(QGraphicsView):
         return self._cut_edges() | self._filtered_edges()
 
     def _refresh_output_visibility(self):
-        """Retire des rectangles les outputs qui ne circulent plus.
+        """Retire des rectangles les seuls outputs qui ne circulent plus.
 
-        Un consommateur ne « compte » que si le lien qui lui apporte l'output
-        est actif ET s'il a encore un chemin actif jusqu'à la scène
-        interrogée. Couper une branche plus bas suffit donc : le ``matlib``
-        importé par une seule scène elle-même coupée du graphe disparaît de la
-        boîte, même si le lien direct qui le transporte n'est pas désactivé.
-        Un output sans consommateur connu reste affiché, et sans aucun lien
-        coupé rien ne change (tout nœud du graphe est atteignable par
-        construction).
+        On raisonne **couple par couple** : une ligne d'output disparaît quand
+        tous les couples qui la transportent sont mutés, coupés par un filtre,
+        ou aboutissent à une scène qui n'a plus de chemin actif jusqu'à la
+        scène interrogée. Muter un seul asset d'un lien retire donc sa ligne
+        et **laisse les autres**. Couper une branche plus bas suffit aussi :
+        le ``matlib`` importé par une seule scène elle-même coupée du graphe
+        disparaît de la boîte. Un output sans consommateur connu reste
+        affiché, et sans rien de muté rien ne change (tout nœud du graphe est
+        atteignable par construction).
         """
         if self._result is None:
             return False
-        disabled = self._effective_disabled()
+        cut = self._filtered_edges()
         reachable = self._reachable_keys()
         hidden = defaultdict(set)
-        for (key, label), children in self._result.output_consumers.items():
-            if all((key, child) in disabled or child not in reachable
-                   for child in children):
+        for (key, label), entries in self._result.output_couples.items():
+            if all(couple_id in self.muted_couple_ids(edge_key)
+                   or edge_key in cut or edge_key[1] not in reachable
+                   for edge_key, couple_id in entries):
                 hidden[key].add(label)
         changed = False
         for key, item in self._node_items.items():

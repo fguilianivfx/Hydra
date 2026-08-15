@@ -216,7 +216,7 @@ class GraphResult:
                  "separator_after_row", "stats",
                  "edge_assets", "edge_details", "stale_asset_ids",
                  "stale_edges", "edge_formats", "formats",
-                 "output_consumers", "edge_couples")
+                 "output_consumers", "edge_couples", "output_couples")
 
     def __init__(self):
         self.nodes = {}            # key -> SceneNode
@@ -242,6 +242,11 @@ class GraphResult:
         # scènes qui l'importent. Sert à expliquer, au survol, pourquoi une
         # ligne figure dans un rectangle.
         self.output_consumers = {}
+        # Par quels couples chaque output circule :
+        # (clé du nœud, libellé) -> ((clé du lien, id du couple), …). Permet
+        # de retirer d'un rectangle la seule ligne mutée, sans attendre que
+        # tout le lien le soit.
+        self.output_couples = {}
         # Couples (version d'asset, scène) portés par chaque lien — l'unité
         # que l'on mute : (top, bottom) -> ((id, libellé, version, dernière
         # version, format, chemin), …). L'``id`` identifie une VERSION précise
@@ -583,15 +588,24 @@ def build_graph(assets, scenes, binds, input_name):
             formats.add(a.get("format", ""))
     result.formats = sorted(formats - {""})
 
-    # Consommateurs de chaque output, pour l'info-bulle du nœud.
+    # Consommateurs de chaque output (info-bulle du nœud) et couples par
+    # lesquels il circule (pour ne masquer que les lignes réellement mutées).
     consumers = defaultdict(set)
+    out_couples = defaultdict(set)
     for (top, bottom), aids in result.edge_assets.items():
         for aid in aids:
-            label = group_labels[top].get(assets[aid]["node_name"])
+            a = assets[aid]
+            label = group_labels[top].get(a["node_name"])
             if label:
                 consumers[(top, label)].add(bottom)
+                out_couples[(top, label)].add(
+                    ((top, bottom),
+                     couple_id(a.get("path", ""),
+                               _input_label(a, raw_scene_names), a["version"])))
     result.output_consumers = {k: tuple(sorted(v))
                                for k, v in consumers.items()}
+    result.output_couples = {k: tuple(sorted(v))
+                             for k, v in out_couples.items()}
 
     # Statut par propagation à trois états :
     #   stale (rouge)     = importe au moins un asset supplanté ;
