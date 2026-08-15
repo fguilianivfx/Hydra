@@ -15,8 +15,11 @@ Packaging (Windows) :
 from __future__ import annotations
 
 import argparse
+import contextlib
+import io
 import os
 import sys
+from collections import namedtuple
 
 from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon
@@ -154,8 +157,13 @@ def _version_state(current, latest):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, scene=""):
-        """``scene`` : nom passé en ligne de commande (-sc), graphé au lancement."""
+    def __init__(self, scene="", graphist="", project=""):
+        """Saisies éventuellement passées en ligne de commande.
+
+        ``scene`` (-sc) est graphée au lancement ; ``graphist`` (-gr) et
+        ``project`` (-pr) ouvrent l'onglet « Graphist to graph » et lancent
+        Check scenes.
+        """
         super().__init__()
         self.setWindowTitle("Dedale — Scene Dependency Graph")
         icon = app_icon()
@@ -198,20 +206,55 @@ class MainWindow(QMainWindow):
         if self.tabs.currentIndex() == 0:
             self._refresh_mysql_status()
         self.statusBar().showMessage(self._mute_mode_message())
-        # Scène passée en ligne de commande : elle l'emporte sur celle
-        # mémorisée, et le graphe part dès que la fenêtre est à l'écran (le
+        # Saisies passées en ligne de commande : elles l'emportent sur celles
+        # mémorisées, et le travail part dès que la fenêtre est à l'écran (le
         # chargement peut durer, autant qu'il se voie).
-        scene = (scene or "").strip()
-        if scene:
-            self.scene_edit.setText(scene)
+        self._startup_scene = (scene or "").strip()
+        artist = (graphist or "").strip()
+        project = (project or "").strip()
+        if self._startup_scene:
+            self.scene_edit.setText(self._startup_scene)
+        if artist:
+            self.artist_edit.setText(artist)
+        if project:
+            self.project_edit.setText(project)
+        # -gr / -pr désignent l'outil graphiste : c'est son onglet qui doit
+        # être devant, le graphe restant visible à droite de toute façon.
+        self._startup_artist = bool(artist or project)
+        if self._startup_artist:
+            self.tool_tabs.setCurrentIndex(1)
+        elif self._startup_scene:
             self.tool_tabs.setCurrentIndex(0)
-            QTimer.singleShot(0, self.graph_startup_scene)
+        if self._startup_scene or self._startup_artist:
+            QTimer.singleShot(0, self.run_startup_actions)
 
-    def graph_startup_scene(self):
-        """Graphe la scène demandée au lancement (-sc)."""
+    def run_startup_actions(self):
+        """Exécute ce que la ligne de commande a demandé (-sc, -gr, -pr)."""
+        if self._startup_scene:
+            self.statusBar().showMessage(
+                f"Graphing \"{self._startup_scene}\"…")
+            self._on_grapher()
+        if self._startup_artist:
+            self.check_startup_artist()
+
+    def check_startup_artist(self):
+        """Lance Check scenes pour le graphiste demandé (-gr / -pr).
+
+        Le nom manquant peut venir des réglages de la dernière session : on
+        ne réclame que ce qui manque vraiment, et par la barre d'état plutôt
+        que par une boîte modale au lancement.
+        """
+        artist = self.artist_edit.text().strip()
+        project = self.project_edit.text().strip()
+        if not artist or not project:
+            missing = "a graphist name (-gr)" if not artist \
+                else "a project code (-pr)"
+            self.statusBar().showMessage(
+                f"Graphist to graph: enter {missing} to check scenes.")
+            return
         self.statusBar().showMessage(
-            f"Graphing \"{self.scene_edit.text().strip()}\"…")
-        self._on_grapher()
+            f"Checking {artist}'s scenes on \"{project}\"…")
+        self._on_check_scenes()
 
     # ------------------------------------------------------------------ UI --
     def _build_ui(self):
@@ -1849,35 +1892,80 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
 
-def parse_args(args):
-    """(options, arguments restants) de la ligne de commande.
-
-    Les arguments inconnus sont **rendus tels quels** à Qt (``-platform``,
-    ``-style``…) plutôt que rejetés : l'outil peut ainsi se lancer avec les
-    options habituelles d'une application Qt.
-    """
+def _arg_parser(prog):
     parser = argparse.ArgumentParser(
-        prog="main.py", add_help=True,
+        prog=prog, add_help=True,
         description="Dedale — graphe interactif de dépendances de scènes.")
     parser.add_argument(
         "-sc", "--scene", metavar="NOM", default="",
         help="graphe cette scène au démarrage "
              "(ex. qua_077_02000_comp_v022) ; sans elle, l'outil se lance "
              "comme d'habitude")
-    return parser.parse_known_args(args)
+    parser.add_argument(
+        "-gr", "--graphist", metavar="NOM", default="",
+        help="ouvre l'onglet « Graphist to graph » sur ce graphiste et "
+             "lance Check scenes")
+    parser.add_argument(
+        "-pr", "--project", metavar="CODE", default="",
+        help="projet du contrôle : code court (qua) ou nom complet "
+             "(quasimodo_26) ; se combine avec -gr")
+    return parser
+
+
+class CliExit(namedtuple("CliExit", "text code")):
+    """Texte à montrer avant de sortir (aide ou erreur), et code de sortie."""
+
+
+def parse_args(args, prog="main.py"):
+    """(options, arguments Qt, sortie immédiate ou None).
+
+    Les arguments inconnus sont **rendus tels quels** à Qt (``-platform``,
+    ``-style``…) plutôt que rejetés.
+
+    Compilé en ``--windowed``, l'exécutable n'a **pas de console** : argparse
+    ne pourrait ni écrire son aide ni signaler une erreur, et son ``exit``
+    fermerait l'application sans un mot (un ``-sc`` sans nom de scène, et
+    rien ne s'ouvre). Son texte est donc capturé et rendu ici, à charge de
+    l'appelant de l'afficher là où il sera vu.
+    """
+    parser = _arg_parser(prog)
+    stream = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(stream), \
+                contextlib.redirect_stderr(stream):
+            options, rest = parser.parse_known_args(args)
+    except SystemExit as exc:
+        text = stream.getvalue().strip() or parser.format_help()
+        return None, [], CliExit(text, int(exc.code or 0))
+    return options, rest, None
 
 
 def main(argv=None):
     argv = list(sys.argv if argv is None else argv)
-    options, qt_args = parse_args(argv[1:])
+    options, qt_args, stop = parse_args(
+        argv[1:], prog=os.path.basename(argv[0]) if argv else "main.py")
     _set_windows_app_id()          # avant toute fenêtre
+    if stop is not None:
+        # Aide demandée ou ligne de commande invalide. Lancé depuis un
+        # terminal, cela s'écrit dans le terminal ; compilé en --windowed il
+        # n'y en a pas, et une boîte de dialogue est le seul endroit où le
+        # dire — sans elle, l'exe se refermerait sans un mot.
+        console = sys.stdout or sys.stderr
+        if console is not None:
+            console.write(stop.text + "\n")
+        else:
+            QApplication(argv[:1])
+            QMessageBox.information(None, "Dedale — command line", stop.text)
+        sys.exit(stop.code)
     app = QApplication(argv[:1] + qt_args)
     app.setApplicationName("Dedale — Dependency Graph")
     icon = app_icon()
     if not icon.isNull():
         # Au niveau application : hérité par la fenêtre et les dialogues.
         app.setWindowIcon(icon)
-    win = MainWindow(scene=options.scene)
+    win = MainWindow(scene=options.scene,
+                     graphist=options.graphist,
+                     project=options.project)
     win.show()
     sys.exit(app.exec())
 

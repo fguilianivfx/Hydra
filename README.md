@@ -78,27 +78,49 @@ scène) à **gauche**, le graphe à **droite**.
 2. Saisissez le **nom de la scène**, ex. `qua_077_02000_comp_v019`.
 3. Cliquez **Grapher**.
 
-### Grapher une scène au lancement (`-sc`)
+### Démarrer sur un travail précis (`-sc`, `-gr`, `-pr`)
 
 ```bat
+:: graphe une scène
 C:\Python39\python.exe .\main.py -sc qua_077_02000_comp_v022
+
+:: contrôle les scènes d'un graphiste
+C:\Python39\python.exe .\main.py -gr "sebastien ginestra" -pr qua
 ```
 
-L'outil s'ouvre avec la scène **déjà graphée** : le nom est saisi, l'onglet
-*Scene to graph* est au premier plan et le graphe part dès que la fenêtre est
-à l'écran (le chargement se voit donc, au lieu d'un démarrage figé).
-`--scene` est accepté comme forme longue.
+| Option | Forme longue | Effet au lancement |
+|--------|--------------|--------------------|
+| `-sc NOM`  | `--scene`    | onglet *Scene to graph*, scène **déjà graphée** |
+| `-gr NOM`  | `--graphist` | onglet *Graphist to graph*, **Check scenes déjà passé** |
+| `-pr CODE` | `--project`  | projet du contrôle : code court (`qua`) ou nom complet (`quasimodo_26`) |
 
-* **sans `-sc`, rien ne change** : l'outil se lance exactement comme
-  aujourd'hui, sur la dernière scène saisie, sans grapher ;
-* la scène passée en ligne de commande **l'emporte** sur celle mémorisée dans
-  les réglages ;
+Le travail démarre **dès que la fenêtre est à l'écran** : le chargement se
+voit, au lieu d'un démarrage figé.
+
+* **sans option, rien ne change** : l'outil se lance exactement comme
+  aujourd'hui, sur les dernières saisies, sans rien lancer ;
+* les valeurs de la ligne de commande **l'emportent** sur celles mémorisées,
+  et **complètent** ce qui manque : `-gr` seul suffit si le projet de la
+  dernière session convient ;
+* s'il manque encore le graphiste ou le projet, l'onglet s'ouvre quand même
+  et la barre d'état dit lequel — **aucune boîte modale au démarrage** ;
+* `-sc` et `-gr` se **combinent** : le graphe est construit *et* les scènes
+  listées ; l'onglet graphiste passe devant, le graphe restant visible à
+  droite ;
 * la **source de données** reste celle de la dernière session (onglet et
-  chemins mémorisés) — `-sc` ne choisit que la scène ;
-* un nom introuvable affiche l'erreur habituelle et **laisse l'outil
-  utilisable** : on corrige la saisie et on regraphe ;
+  chemins mémorisés) : ces options ne choisissent que le travail à faire ;
+* une scène introuvable affiche l'erreur habituelle et **laisse l'outil
+  utilisable** : on corrige la saisie et on relance ;
 * les autres arguments sont **transmis à Qt** (`-platform`, `-style`…) plutôt
   que rejetés, et `-h` affiche l'aide.
+
+> **Sur l'exécutable compilé, mêmes options** : `Dedale.exe -sc
+> qua_077_02000_comp_v022`. Compilé en `--windowed` il n'y a pas de console :
+> `-h`, ou une option mal formée (`-sc` sans nom), s'afficheraient dans le
+> vide et l'exe se refermerait **sans un mot**. Le texte d'argparse est donc
+> récupéré et montré dans une **boîte de dialogue** ; lancé depuis un
+> terminal, il s'écrit normalement dans le terminal, avec le code de sortie
+> habituel (`0` pour l'aide, `2` pour une erreur).
 
 ### Packaging (exécutable Windows)
 
@@ -708,7 +730,7 @@ rend exactement la disposition de départ.
 
 | Fichier           | Rôle                                                         |
 |-------------------|-------------------------------------------------------------|
-| `main.py`         | Point d'entrée (option `-sc`), fenêtre principale, panneau de source, UI. |
+| `main.py`         | Point d'entrée (options `-sc`, `-gr`, `-pr`), fenêtre principale, panneau de source, UI. |
 | `data_source.py`  | `load_from_mysql` / `load_from_csv` / `load_from_sql_dump`. |
 | `graph_model.py`  | Résolution du nom, parcours scenes+binds, regroupement, statut, disposition. |
 | `graph_view.py`   | `QGraphicsScene`/`QGraphicsView`, items nœud & arête, drag horizontal, survol, zoom/pan. |
