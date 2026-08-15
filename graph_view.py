@@ -13,6 +13,7 @@ Aucune dépendance à une librairie de graphe externe.
 
 from __future__ import annotations
 
+import html
 import math
 from collections import defaultdict
 
@@ -113,6 +114,23 @@ def _vfmt(version):
 def _as_point(pos):
     """Ramène un QPoint ou un QPointF à un QPoint (les menus l'exigent)."""
     return pos.toPoint() if hasattr(pos, "toPoint") else pos
+
+
+def tooltip_html(text):
+    """Rend une info-bulle **non repliée**, aussi large que son contenu.
+
+    Qt replie de lui-même les info-bulles en texte brut un peu longues : le
+    nom des deux scènes reliées se retrouvait coupé en plusieurs morceaux.
+    En rich text, ``<nobr>`` par ligne garde chaque ligne entière — la bulle
+    prend la largeur qu'il faut, comme le menu du clic droit.
+    """
+    rows = []
+    for line in text.split("\n"):
+        escaped = html.escape(line)
+        stripped = escaped.lstrip(" ")
+        indent = "&nbsp;" * (len(escaped) - len(stripped))
+        rows.append(f"<nobr>{indent}{stripped}</nobr>")
+    return "<div>" + "<br>".join(rows) + "</div>"
 
 
 def _fmt_tag(fmt):
@@ -249,8 +267,8 @@ class EdgeItem(QGraphicsPathItem):
         self.setPen(pen)
         carried = ("carries an outdated asset" if self.carries_stale
                    else "all assets up to date")
-        lines = [self.src.node.display_name,
-                 f"→ {self.dst.node.display_name}",
+        lines = [f"{self.src.node.display_name}  →  "
+                 f"{self.dst.node.display_name}",
                  f"This link: {carried}"]
         # Chaque couple (version d'asset, scène) porte son propre état : muté
         # en mémoire, muté et enregistré, ou actif.
@@ -278,7 +296,7 @@ class EdgeItem(QGraphicsPathItem):
         else:
             lines.append(action_text
                          or "Right-click: mute the assets on this link")
-        self.setToolTip("\n".join(lines))
+        self.setToolTip(tooltip_html("\n".join(lines)))
         self.update()
 
     def set_state(self, state):
@@ -418,13 +436,13 @@ class SceneNodeItem(QGraphicsObject):
         self.setFlag(QGraphicsItem.ItemSendsGeometryChanges, True)
         self.setAcceptHoverEvents(True)
         self.setZValue(0)
-        self.setToolTip(self._tooltip_text())
+        self.setToolTip(tooltip_html(self._tooltip_text()))
         self._relayout()
 
     def set_output_consumers(self, consumers):
         """Qui importe chaque output ; sert à expliquer l'info-bulle."""
         self._consumers = dict(consumers)
-        self.setToolTip(self._tooltip_text())
+        self.setToolTip(tooltip_html(self._tooltip_text()))
 
     def set_hidden_outputs(self, labels):
         """Masque les outputs qui n'alimentent plus aucun lien actif.
@@ -437,7 +455,7 @@ class SceneNodeItem(QGraphicsObject):
             return False
         self._hidden_outputs = labels
         self._relayout()
-        self.setToolTip(self._tooltip_text())
+        self.setToolTip(tooltip_html(self._tooltip_text()))
         return True
 
     def visible_outputs(self):
@@ -546,7 +564,7 @@ class SceneNodeItem(QGraphicsObject):
 
     def refresh_status(self):
         """Le statut du nœud a changé : infobulle + repeinture."""
-        self.setToolTip(self._tooltip_text())
+        self.setToolTip(tooltip_html(self._tooltip_text()))
         self.update()
 
     def set_row_y(self, y):
@@ -1168,24 +1186,25 @@ class DependencyGraphView(QGraphicsView):
     def _refresh_output_visibility(self):
         """Retire des rectangles les seuls outputs qui ne circulent plus.
 
-        On raisonne **couple par couple** : une ligne d'output disparaît quand
-        tous les couples qui la transportent sont mutés, coupés par un filtre,
-        ou aboutissent à une scène qui n'a plus de chemin actif jusqu'à la
-        scène interrogée. Muter un seul asset d'un lien retire donc sa ligne
-        et **laisse les autres**. Couper une branche plus bas suffit aussi :
-        le ``matlib`` importé par une seule scène elle-même coupée du graphe
-        disparaît de la boîte. Un output sans consommateur connu reste
-        affiché, et sans rien de muté rien ne change (tout nœud du graphe est
-        atteignable par construction).
+        On raisonne **couple par couple**, et seulement sur le **lien direct**
+        : une ligne d'output disparaît quand tous les couples qui la
+        transportent sont mutés ou coupés par un filtre. Muter un seul asset
+        d'un lien retire donc sa ligne et **laisse les autres**.
+
+        La propagation ne joue pas ici : tant que le lien qui porte l'output
+        est actif, la ligne reste — même si la scène qui l'importe se trouve,
+        plus bas, coupée de la scène interrogée. Ce que la boîte annonce, ce
+        sont les assets qu'elle exporte **vers un lien encore actif**, pas
+        ceux qui atteignent le bout du graphe. Un output sans consommateur
+        connu n'est jamais masqué.
         """
         if self._result is None:
             return False
         cut = self._filtered_edges()
-        reachable = self._reachable_keys()
         hidden = defaultdict(set)
         for (key, label), entries in self._result.output_couples.items():
             if all(couple_id in self.muted_couple_ids(edge_key)
-                   or edge_key in cut or edge_key[1] not in reachable
+                   or edge_key in cut
                    for edge_key, couple_id in entries):
                 hidden[key].add(label)
         changed = False

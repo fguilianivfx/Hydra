@@ -616,18 +616,24 @@ indépendamment. Contrairement au clic droit, ces filtres n'écrivent
 la fermeture.
 
 **Les rectangles listent les assets réellement connectés en output — sauf
-ceux mutés.** Le tri se fait **couple par couple**, pas lien par lien : une
-ligne disparaît quand **tous** les couples qui la transportent sont mutés,
-coupés par un filtre, ou aboutissent à une scène qui n'a plus de chemin actif
-jusqu'à la scène interrogée. Muter un seul asset d'un lien retire donc **sa
-seule ligne** et laisse les autres — le lien, lui, reste visible tant qu'il
-transporte encore quelque chose. Couper une branche **en aval** suffit aussi :
-le `matlib` de la v048, importé par la seule v049, s'efface dès que la v049
-est coupée du graphe, tandis que celui que le plan importe reste. La boîte
-rétrécit d'autant, son info-bulle suit, et l'affichage ou non des branches
-coupées (*Show disable branches*) ne change rien au contenu des boîtes. Un
-output sans consommateur connu n'est jamais masqué, et tout démuter rend les
-boîtes à l'identique.
+ceux mutés.** Le tri se fait **couple par couple**, et **sur le lien direct**
+seulement : une ligne disparaît quand **tous** les couples qui la transportent
+sont mutés ou coupés par un filtre. Muter un seul asset d'un lien retire donc
+**sa seule ligne** et laisse les autres — le lien, lui, reste visible tant
+qu'il transporte encore quelque chose.
+
+> **La propagation ne joue pas sur le contenu des boîtes.** Tant que le lien
+> qui porte l'output est actif, la ligne reste — même si la scène qui
+> l'importe est, plus bas, coupée de la scène interrogée. Un asset exporté par
+> l'`animation` vers le `lighting` reste donc listé quand on mute
+> `lighting → comp` : ce que la boîte annonce, ce sont les assets qu'elle
+> exporte **vers un lien encore actif**, pas ceux qui atteignent le bout du
+> graphe.
+
+La boîte rétrécit d'autant, son info-bulle suit, et l'affichage ou non des
+branches coupées (*Show disable branches*) ne change rien au contenu des
+boîtes. Un output sans consommateur connu n'est jamais masqué, et tout démuter
+rend les boîtes à l'identique.
 
 **Show tasks** — seconde liste **dynamique**, sous celle des formats : une case
 par task présente dans le graphe, **dans l'ordre des lignes** (haut → bas :
@@ -669,7 +675,7 @@ rend exactement la disposition de départ.
 | **Glisser** un nœud             | Réordonner (déplacement **horizontal** seul)|
 | **Glisser la poignée** de ligne (à gauche) | **Réordonner les lignes** de tâche (vertical) |
 | **Survol** d'un nœud            | Dépendances directes + graphiste + inputs/outputs avec **format** `[abc]`, versions `(vXXX)` ou `(vXXX → vYYY)`, et **qui importe** chaque output |
-| **Survol** d'un lien            | Scènes reliées + assets qui y transitent, avec format et versions |
+| **Survol** d'un lien            | Les deux scènes reliées **sur une seule ligne** (`A → B`, comme l'en-tête du menu), puis les assets qui y transitent avec format, versions et état de mute |
 | **Molette**                     | Zoom (ancré sous le curseur)               |
 | **Bouton du milieu** + glisser  | Déplacement (pan)                          |
 | **Redraw layout** (sous le graphe) | Resserre le graphe sur les nœuds encore affichés, puis recadre la vue |
