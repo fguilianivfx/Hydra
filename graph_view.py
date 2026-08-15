@@ -110,6 +110,11 @@ def _vfmt(version):
     return f"v{version:03d}" if version is not None else "v?"
 
 
+def _as_point(pos):
+    """Ramène un QPoint ou un QPointF à un QPoint (les menus l'exigent)."""
+    return pos.toPoint() if hasattr(pos, "toPoint") else pos
+
+
 def _fmt_tag(fmt):
     """Suffixe de format pour les info-bulles : « abc » -> ' [abc]'."""
     return f" [{fmt}]" if fmt else ""
@@ -949,8 +954,13 @@ class DependencyGraphView(QGraphicsView):
             edge.refresh_appearance()
 
     def request_edge_menu(self, edge, screen_pos):
-        """Demande le menu contextuel d'un lien (construit par MainWindow)."""
-        self.edge_menu_requested.emit(edge.key, screen_pos.toPoint())
+        """Demande le menu contextuel d'un lien (construit par MainWindow).
+
+        ``QGraphicsSceneMouseEvent.screenPos()`` rend un ``QPoint`` ; d'autres
+        sources (événements de widget, appels de test) donnent un ``QPointF``.
+        On accepte les deux, un menu s'ouvrant sur un ``QPoint``.
+        """
+        self.edge_menu_requested.emit(edge.key, _as_point(screen_pos))
 
     # --- couples (version d'asset, scène) -----------------------------------
     def edge_couples(self, edge_key):
