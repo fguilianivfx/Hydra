@@ -93,6 +93,8 @@ C:\Python39\python.exe .\main.py -gr "sebastien ginestra" -pr qua
 | `-sc NOM`  | `--scene`    | onglet *Scene to graph*, scène **déjà graphée** |
 | `-gr NOM`  | `--graphist` | onglet *Graphist to graph*, **Check scenes déjà passé** |
 | `-pr CODE` | `--project`  | projet du contrôle : code court (`qua`) ou nom complet (`quasimodo_26`) |
+| `-sb 1`    | `--sandbox`  | écrit les mutes dans un **fichier d'essai** au lieu de la base |
+| `-debug 1` | `--debug`    | affiche les sources **CSV** et **SQL dump**, masquées en temps normal |
 
 Le travail démarre **dès que la fenêtre est à l'écran** : le chargement se
 voit, au lieu d'un démarrage figé.
@@ -111,8 +113,15 @@ voit, au lieu d'un démarrage figé.
   chemins mémorisés) : ces options ne choisissent que le travail à faire ;
 * une scène introuvable affiche l'erreur habituelle et **laisse l'outil
   utilisable** : on corrige la saisie et on relance ;
+* `-sb` et `-debug` acceptent `1`/`0` (ou `true`/`false`, `yes`/`no`) et
+  valent `1` s'ils sont passés **sans valeur** ; absents, ils valent `0` ;
 * les autres arguments sont **transmis à Qt** (`-platform`, `-style`…) plutôt
   que rejetés, et `-h` affiche l'aide.
+
+En usage courant, le panneau **Data source** ne montre donc que **MySQL** :
+les sources CSV et SQL dump servent à la mise au point et n'apparaissent
+qu'avec `-debug 1`. Si la dernière session s'était terminée sur l'une
+d'elles, l'outil rouvre sur MySQL plutôt que sur une source invisible.
 
 > **Sur l'exécutable compilé, mêmes options** : `Dedale.exe -sc
 > qua_077_02000_comp_v022`. Compilé en `--windowed` il n'y a pas de console :
@@ -140,10 +149,11 @@ python -m PyInstaller --onefile --windowed .\main.py --icon Dedale.ico --add-dat
 Si `Dedale.ico` est absent, l'application démarre normalement, simplement sans
 icône personnalisée.
 
-Pour un essai immédiat sans base de données, utilisez le jeu d'exemple fourni
-dans [`sample_data/`](sample_data) : onglet **Fichiers CSV** → *Dossier…* →
-sélectionnez `sample_data`, puis graphez `qua_077_02000_comp_v019`.
-(Le même jeu est disponible en dump SQL : `sample_data/dump.sql`.)
+Pour un essai immédiat sans base de données, lancez avec **`-debug 1`** (les
+sources hors MySQL sont masquées sans elle) et utilisez le jeu d'exemple de
+[`sample_data/`](sample_data) : onglet **CSV** → *Dossier…* → sélectionnez
+`sample_data`, puis graphez `qua_077_02000_comp_v019`. (Le même jeu est
+disponible en dump SQL : `sample_data/dump.sql`.)
 
 ---
 
@@ -519,7 +529,10 @@ n'importe quelle source :
   vers cette scène enfant** ; *Unmute* fait de même avec `unmute_asset` ;
 * après **chaque** écriture, `get_scene_mutes()` est **relu** et l'affichage
   se resynchronise sur ce que la cible contient vraiment (consigne du
-  développeur du module) ;
+  développeur du module). Ses entrées sont traitées comme **opaques** : elles
+  ne sont jamais inspectées, seulement repassées à `is_asset_path_muted`.
+  C'est ce qui a rendu indolore leur passage de 2 à 3 valeurs (ajout de la
+  version) lors de la mise à jour du module ;
 * à chaque *Graph* — donc aussi dans une **nouvelle session** — les couples
   enregistrés sont relus et réappliqués (« *n muted link(s) restored…* ») :
   **on retrouve le même état d'une session à l'autre**, depuis n'importe quel
@@ -560,18 +573,18 @@ statuts côté serveur (`mute_family`, `load_all_mutes`, `load_changed_mutes`,
 **jamais** appelée : depuis un outil, elle ferait une requête par ligne
 affichée, ou écrirait un mute avec la mauvaise tâche.
 
-#### Mode d'essai (par défaut) et passage en réel
+#### Bac à sable (`-sb 1`) et réglages avancés
 
-Le temps de mettre au point la stratégie des couples, Dedale écrit dans un
-**fichier d'essai** et ne touche pas la base. Deux réglages indépendants
-commandent cela.
+Dedale écrit **dans la base du studio**. Pour rejouer un essai sans y
+toucher, `-sb 1` bascule sur un fichier local ; deux variables
+d'environnement restent disponibles quand aucune option n'est passée.
 
 **1. Où vont les mutes** — `DEDALE_MUTES_TARGET` :
 
 | Valeur | Effet |
 |--------|-------|
-| `sandbox` (**défaut**) | Les mutes vont dans un **fichier JSON local** et le module Kraken n'est même pas importé : **la base n'est pas touchée**. Tout le mécanisme fonctionne (mute, relecture, restauration à la session suivante), y compris sur un poste **sans Kraken**. |
-| `db` | Écriture réelle en base via le module Kraken, une fois la stratégie validée. |
+| `db` (**défaut**) | Écriture réelle en base via le module Kraken. |
+| `sandbox` | Comme `-sb 1` : les mutes vont dans un **fichier JSON local** et le module Kraken n'est même pas importé, **la base n'est pas touchée**. Tout le mécanisme fonctionne (mute, relecture, restauration à la session suivante), y compris sur un poste **sans Kraken**. |
 
 Le fichier d'essai est `DEDALE_MUTES_SANDBOX_FILE` s'il est défini, sinon
 `~/.dedale/mutes_sandbox.json` ; **le supprimer remet l'essai à zéro**. Son
@@ -585,11 +598,8 @@ sont **ni lus ni appliqués**. La restriction porte sur la source **qui a
 produit le graphe affiché**, pas sur l'onglet sélectionné : changer d'onglet
 sans regrapher n'ouvre jamais l'écriture.
 
-Pour écrire pour de bon dans la base, une fois la stratégie validée :
-
-```bat
-set DEDALE_MUTES_TARGET=db
-```
+`-sb 1` l'emporte sur cette variable ; sans option ni variable, c'est la
+base.
 
 L'interface dit toujours dans quel régime on est : ligne d'état au lancement,
 rappel sous le graphe (`Right-click a link: mute assets (saved in test

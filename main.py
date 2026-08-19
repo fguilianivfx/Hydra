@@ -157,14 +157,18 @@ def _version_state(current, latest):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, scene="", graphist="", project=""):
-        """Saisies éventuellement passées en ligne de commande.
+    def __init__(self, scene="", graphist="", project="", sandbox=False,
+                 debug=False):
+        """Saisies et modes passés en ligne de commande.
 
         ``scene`` (-sc) est graphée au lancement ; ``graphist`` (-gr) et
         ``project`` (-pr) ouvrent l'onglet « Graphist to graph » et lancent
-        Check scenes.
+        Check scenes. ``sandbox`` (-sb 1) écrit les mutes dans un fichier
+        d'essai au lieu de la base ; ``debug`` (-debug 1) montre les sources
+        CSV et SQL dump.
         """
         super().__init__()
+        self._debug = bool(debug)
         self.setWindowTitle("Dedale — Scene Dependency Graph")
         icon = app_icon()
         if not icon.isNull():
@@ -179,9 +183,10 @@ class MainWindow(QMainWindow):
         # la persistance des mutes), et source dont il provient.
         self._graph_result = None
         self._graph_source = ""
-        # Persistance des liens muted : bac à sable de test par défaut, base
-        # du studio sur demande (DEDALE_MUTES_TARGET=db).
-        self._mutes = ms.MutesStore()
+        # Persistance des mutes : la base du studio, sauf « -sb 1 » qui
+        # bascule sur le fichier d'essai. La variable d'environnement reste
+        # utilisable quand aucune option n'est passée.
+        self._mutes = ms.MutesStore(target="sandbox" if sandbox else None)
         # Sécurité : seules ces sources peuvent enregistrer des mutes. Par
         # défaut le dump .sql seul, pour essayer sans toucher au reste.
         self._mute_sources = _mute_sources()
@@ -283,6 +288,11 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self._build_mysql_tab(), "MySQL")
         self.tabs.addTab(self._build_csv_tab(), "CSV")
         self.tabs.addTab(self._build_sql_tab(), "SQL dump")
+        # CSV et SQL dump sont des sources de mise au point : masquées sauf
+        # « -debug 1 ». On les masque plutôt que de ne pas les créer, pour
+        # que les index de source (mysql=0, csv=1, sql=2) restent stables.
+        for index in (1, 2):
+            self.tabs.setTabVisible(index, self._debug)
         self.tabs.currentChanged.connect(self._on_source_tab_changed)
         lay.addWidget(self.tabs)
 
@@ -1834,8 +1844,12 @@ class MainWindow(QMainWindow):
         self.chk_show_available.setChecked(
             s.value("artist/show_available", "false") == "true")
         idx = int(s.value("source_tab", 0))
-        if 0 <= idx < self.tabs.count():
-            self.tabs.setCurrentIndex(idx)
+        # Une session de mise au point a pu laisser CSV ou SQL dump en cours :
+        # sans -debug ces onglets sont masqués, on retombe donc sur MySQL
+        # plutôt que d'ouvrir sur une source invisible.
+        if not (0 <= idx < self.tabs.count() and self.tabs.isTabVisible(idx)):
+            idx = 0
+        self.tabs.setCurrentIndex(idx)
         idx = int(s.value("tool_tab", 0))
         if 0 <= idx < self.tool_tabs.count():
             self.tool_tabs.setCurrentIndex(idx)
@@ -1909,7 +1923,20 @@ def _arg_parser(prog):
         "-pr", "--project", metavar="CODE", default="",
         help="projet du contrôle : code court (qua) ou nom complet "
              "(quasimodo_26) ; se combine avec -gr")
+    parser.add_argument(
+        "-sb", "--sandbox", metavar="0|1", nargs="?", const="1", default="0",
+        help="1 : écrit les mutes dans un fichier d'essai au lieu de la base "
+             "(par défaut ils vont dans la base du studio)")
+    parser.add_argument(
+        "-debug", "--debug", metavar="0|1", nargs="?", const="1", default="0",
+        help="1 : affiche les sources de données CSV et SQL dump, masquées "
+             "en temps normal")
     return parser
+
+
+def _flag(value):
+    """Vrai pour « 1 », « true », « yes », « on » (insensible à la casse)."""
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on", "y")
 
 
 class CliExit(namedtuple("CliExit", "text code")):
@@ -1965,7 +1992,9 @@ def main(argv=None):
         app.setWindowIcon(icon)
     win = MainWindow(scene=options.scene,
                      graphist=options.graphist,
-                     project=options.project)
+                     project=options.project,
+                     sandbox=_flag(options.sandbox),
+                     debug=_flag(options.debug))
     win.show()
     sys.exit(app.exec())
 

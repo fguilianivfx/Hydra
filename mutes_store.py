@@ -67,10 +67,10 @@ class _MessageCatcher(logging.Handler):
 
 # Installation Kraken par défaut (poste graphiste Windows).
 DEFAULT_KRAKEN_PATH = "C:/Program Files/Kraken"
-# Cible d'écriture par défaut : le bac à sable, le temps de mettre au point
-# la stratégie des couples (version d'asset, scène). DEDALE_MUTES_TARGET=db
-# bascule sur la base du studio.
-DEFAULT_TARGET = "sandbox"
+# Cible d'écriture par défaut : la base du studio, qui sait désormais muter
+# une version d'asset pour une scène. Le bac à sable reste accessible par
+# « -sb 1 » (ou DEDALE_MUTES_TARGET=sandbox) pour rejouer un essai.
+DEFAULT_TARGET = "db"
 
 
 def kraken_path():
@@ -231,7 +231,12 @@ class MutesStore:
     @property
     def label(self):
         """Nom court de la cible, pour les messages et les info-bulles."""
-        return "DB" if self.writes_to_db else "test file"
+        if self.writes_to_db:
+            return "DB"
+        if self._mode == "sandbox":
+            return "test file"
+        # Aucune cible : les mutes ne vivront que le temps de la session.
+        return "memory"
 
     @property
     def sandbox_file(self):
