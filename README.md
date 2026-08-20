@@ -131,6 +131,17 @@ d'elles, l'outil rouvre sur MySQL plutôt que sur une source invisible.
 > terminal, il s'écrit normalement dans le terminal, avec le code de sortie
 > habituel (`0` pour l'aide, `2` pour une erreur).
 
+### Thème sombre
+
+Toute la fenêtre est sombre, accordée au graphe qui l'était déjà : palette
+Fusion, champs et listes en `#1b1f26`, **barre d'état en noir** (`#0f1216`)
+et, sous Windows 10/11, **barre de titre sombre** elle aussi — Qt ne
+l'expose pas, elle passe par `DwmSetWindowAttribute` (sans effet ailleurs, et
+jamais bloquant). Les couleurs de version ont été éclaircies pour rester
+lisibles : vert `#4ec97e`, rouge `#ff6f61`, bleu des assets non importés
+`#5aa9ff`. L'indicateur des cases à cocher est redessiné, sans quoi une case
+décochée devient invisible sur fond sombre.
+
 ### Packaging (exécutable Windows)
 
 Placez **`Dedale.ico`** à côté de `main.py`, puis :
@@ -550,20 +561,26 @@ n'importe quelle source :
 > exemple — est repris tel quel : il apparaît muté dans le menu et dans
 > l'info-bulle, sans couper le lien tant que les autres couples passent.
 
-> **Quand le module refuse.** `mute_asset` peut renoncer :
-> `2 different assets share the folder of …, cannot tell which one to mute`.
-> Le refus a lieu **à l'intérieur** de la fonction, qui résout par dossier :
-> aucun chemin qu'on lui passe n'y change quoi que ce soit. Dedale fait alors
-> deux choses : **le clic produit quand même son effet** (le couple est muté
-> en mémoire, les statuts recalculés), et **il ne prétend pas que c'est
-> enregistré** — l'état est revérifié couple par couple après l'écriture, et
-> la barre d'état affiche ce qui n'est pas passé, la raison du module et la
-> portée : `1/2 asset version(s) not recorded in the DB: … — 2 different
-> assets share the folder of …  Applied for this session only.`
-> Le rendre permanent demande une correction hors de l'outil (côté
-> `assets_mutes`, ou côté données). Dedale n'utilise pas `mute_family` pour
-> contourner : c'est une fonction de la couche cron, qui écrirait le mute
-> **avec la mauvaise tâche** — or un mute vise ici une scène enfant précise.
+> **Les assets d'un même dossier sont mutés ensemble.** Le module résout un
+> asset par **son dossier** : quand plusieurs y sont publiés — `matlib` et
+> `paille_shd_main` dans un même `hda/`, `chair` et `chair_v001` dans un même
+> `obj/` — il ne sait pas lequel viser et renonce
+> (`2 different assets share the folder of …, cannot tell which one to
+> mute`). Dedale les traite donc comme un **bloc** : muter un couple mute
+> tous les chemins de son dossier, l'unmute les lève tous, et **la lecture
+> suit la même règle** — un couple est montré muté dès qu'un asset de son
+> dossier l'est, fût-il posé depuis un autre outil. Sans cette symétrie,
+> l'affichage et la base divergeraient au premier aller-retour.
+
+> Si le module refuse malgré tout, **le clic produit quand même son effet**
+> (le couple est muté en mémoire, les statuts recalculés) et Dedale **ne
+> prétend pas que c'est enregistré** : l'état est revérifié après l'écriture,
+> et la barre d'état affiche ce qui n'est pas passé, la raison du module et
+> la portée : `1/2 asset version(s) not recorded in the DB: … — 2 different
+> assets share the folder of …  Applied for this session only.` Dedale
+> n'utilise pas `mute_family` pour contourner : c'est une fonction de la
+> couche cron, qui écrirait le mute **avec la mauvaise tâche** — or un mute
+> vise ici une scène enfant précise.
 
 Seules les **cinq fonctions prévues** pour un outil interactif sont
 utilisées : `get_scene_mutes`, `is_asset_path_muted`, `mute_asset`,

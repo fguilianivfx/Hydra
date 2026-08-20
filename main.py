@@ -22,7 +22,7 @@ import sys
 from collections import namedtuple
 
 from PySide6.QtCore import QSettings, Qt, QTimer
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtGui import QColor, QIcon, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -114,8 +114,110 @@ _LEGACY_ORG = "Hydra"
 _DEFAULT_SCENE = "qua_077_02000_comp_v019"
 
 
+# --- Thème sombre -----------------------------------------------------------
+# Le graphe a toujours été sombre ; le reste de la fenêtre s'y accorde.
+_DARK_WINDOW = "#14171b"     # fond général, celui de la scène du graphe
+_DARK_PANEL = "#1b1f26"      # champs, listes, onglets
+_DARK_RAISED = "#232830"     # boutons, onglet actif
+_DARK_BORDER = "#2f3640"
+_DARK_TEXT = "#d7dce3"
+_DARK_DIM = "#8a93a0"        # libellés secondaires (déjà utilisé partout)
+_DARK_ACCENT = "#4a90d9"
+
+# Couleurs de texte des versions : suffisamment claires pour un fond sombre.
+_COL_OK_TEXT = QColor("#4ec97e")      # à jour
+_COL_STALE_TEXT = QColor("#ff6f61")   # périmé
 # Bleu des assets publiés sur le plan mais non importés (purement informatif).
-_COL_AVAILABLE = QColor("#1a5fb4")
+_COL_AVAILABLE = QColor("#5aa9ff")
+
+
+def apply_dark_theme(app):
+    """Applique la palette sombre à toute l'application."""
+    app.setStyle("Fusion")          # base neutre : la palette est respectée
+    pal = QPalette()
+    window, panel = QColor(_DARK_WINDOW), QColor(_DARK_PANEL)
+    text, dim = QColor(_DARK_TEXT), QColor(_DARK_DIM)
+    pal.setColor(QPalette.Window, window)
+    pal.setColor(QPalette.WindowText, text)
+    pal.setColor(QPalette.Base, panel)
+    pal.setColor(QPalette.AlternateBase, QColor("#1f242b"))
+    pal.setColor(QPalette.Text, text)
+    pal.setColor(QPalette.Button, QColor(_DARK_RAISED))
+    pal.setColor(QPalette.ButtonText, text)
+    pal.setColor(QPalette.ToolTipBase, QColor(_DARK_RAISED))
+    pal.setColor(QPalette.ToolTipText, text)
+    pal.setColor(QPalette.PlaceholderText, dim)
+    pal.setColor(QPalette.Highlight, QColor(_DARK_ACCENT))
+    pal.setColor(QPalette.HighlightedText, QColor("#0f1216"))
+    pal.setColor(QPalette.Link, QColor(_DARK_ACCENT))
+    for role in (QPalette.WindowText, QPalette.Text, QPalette.ButtonText):
+        pal.setColor(QPalette.Disabled, role, QColor("#5c646f"))
+    app.setPalette(pal)
+    app.setStyleSheet(f"""
+        QWidget {{ background:{_DARK_WINDOW}; color:{_DARK_TEXT}; }}
+        QLineEdit, QAbstractItemView {{
+            background:{_DARK_PANEL}; border:1px solid {_DARK_BORDER};
+            border-radius:3px; padding:2px 4px; }}
+        QLineEdit:focus {{ border:1px solid {_DARK_ACCENT}; }}
+        QPushButton {{
+            background:{_DARK_RAISED}; border:1px solid {_DARK_BORDER};
+            border-radius:3px; padding:4px 10px; }}
+        QPushButton:hover {{ background:#2b313a; }}
+        QPushButton:disabled {{ color:#5c646f; }}
+        /* Sans cadre explicite, une case décochée devient invisible sur le
+           fond sombre : on redessine l'indicateur. */
+        QCheckBox::indicator {{
+            width:12px; height:12px; border-radius:3px;
+            border:1px solid #4a5462; background:{_DARK_PANEL}; }}
+        QCheckBox::indicator:hover {{ border:1px solid {_DARK_ACCENT}; }}
+        QCheckBox::indicator:checked {{
+            background:{_DARK_ACCENT}; border:1px solid {_DARK_ACCENT}; }}
+        QCheckBox::indicator:disabled {{ border:1px solid #39414c; }}
+        QTabWidget::pane {{ border:1px solid {_DARK_BORDER}; }}
+        QTabBar::tab {{
+            background:{_DARK_PANEL}; color:{_DARK_DIM};
+            border:1px solid {_DARK_BORDER}; border-bottom:none;
+            padding:4px 12px; }}
+        QTabBar::tab:selected {{
+            background:{_DARK_RAISED}; color:{_DARK_TEXT}; }}
+        QHeaderView::section {{
+            background:{_DARK_PANEL}; color:{_DARK_DIM};
+            border:none; border-bottom:1px solid {_DARK_BORDER};
+            padding:3px 6px; }}
+        QStatusBar {{ background:#0f1216; color:{_DARK_TEXT}; }}
+        QStatusBar::item {{ border:none; }}
+        QScrollBar:vertical, QScrollBar:horizontal {{
+            background:{_DARK_WINDOW}; border:none; width:11px; height:11px; }}
+        QScrollBar::handle {{ background:#39414c; border-radius:5px; }}
+        QScrollBar::handle:hover {{ background:#4a5462; }}
+        QScrollBar::add-line, QScrollBar::sub-line {{ height:0; width:0; }}
+        QSplitter::handle {{ background:{_DARK_BORDER}; }}
+        QToolTip {{
+            background:{_DARK_RAISED}; color:{_DARK_TEXT};
+            border:1px solid {_DARK_BORDER}; padding:4px; }}
+    """)
+
+
+def dark_title_bar(widget):
+    """Barre de titre sombre sous Windows 10/11 (sans effet ailleurs).
+
+    Sans cela, une barre blanche coiffe une fenêtre entièrement noire. Qt
+    n'expose pas ce réglage : il passe par DWM.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        hwnd = int(widget.winId())
+        value = ctypes.c_int(1)
+        for attribute in (20, 19):      # 20 = Windows 11/2004+, 19 = plus ancien
+            ok = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, attribute, ctypes.byref(value), ctypes.sizeof(value))
+            if ok == 0:
+                return True
+    except Exception:
+        pass                            # purement cosmétique : jamais bloquant
+    return False
 
 # Clé d'un groupe de premier niveau (scène ou date) : sert à retrouver les
 # triangles dépliés après reconstruction de l'arbre.
@@ -736,11 +838,11 @@ class MainWindow(QMainWindow):
             QApplication.restoreOverrideCursor()
         if ok:
             self.my_status.setText("Connection DB OK")
-            self.my_status.setStyleSheet("color:#1c7a44;")
+            self.my_status.setStyleSheet(f"color:{_COL_OK_TEXT.name()};")
         else:
             self.my_status.setText(
                 f"Connection Error\n{message}\n{self._connection_details()}")
-            self.my_status.setStyleSheet("color:#b4392c;")
+            self.my_status.setStyleSheet(f"color:{_COL_STALE_TEXT.name()};")
         # Le message tient sur une ligne (OK) ou sur plusieurs (erreur) : le
         # bloc se réajuste dans les deux cas.
         self._fit_source_tab()
@@ -1157,15 +1259,28 @@ class MainWindow(QMainWindow):
                     f"({columns}) in this source")
 
     def _couple_paths(self, edge_key, couple_ids=None):
-        """{id de couple: chemin publié} pour les couples demandés.
+        """{id de couple: (chemins à muter ensemble, …)}.
+
+        Le chemin du couple, **plus tous ceux publiés dans le même dossier**.
+        Le module résout un asset par son dossier : quand plusieurs y
+        cohabitent (``matlib`` et ``paille_shd_main``, ``chair`` et
+        ``chair_v001``), il ne sait pas lequel viser et renonce. On les traite
+        donc comme un bloc — à l'écriture comme à la lecture, sans quoi
+        l'affichage et la base divergeraient.
 
         Un couple sans chemin (source sans colonne dédiée) est absent : il
         restera mutable en mémoire seulement.
         """
-        couples = self._graph_result.edge_couples.get(edge_key, ())
+        result = self._graph_result
+        couples = result.edge_couples.get(edge_key, ())
         wanted = None if couple_ids is None else set(couple_ids)
-        return {cid: path for cid, _l, _v, _lat, _f, path in couples
-                if path and (wanted is None or cid in wanted)}
+        groups = {}
+        for cid, _l, _v, _lat, _f, path in couples:
+            if not path or (wanted is not None and cid not in wanted):
+                continue
+            siblings = result.folder_assets.get(ds.publish_folder(path), ())
+            groups[cid] = tuple(sorted({path} | {p for p in siblings if p}))
+        return groups
 
     def _compute_db_mutes(self, refresh=False):
         """{lien: {couples mutés}} d'après la cible d'écriture.
@@ -1180,14 +1295,18 @@ class MainWindow(QMainWindow):
             scene_path, _why = self._mute_scene_path(edge_key)
             if not scene_path:
                 continue
-            paths = self._couple_paths(edge_key)
-            if not paths:
+            groups = self._couple_paths(edge_key)
+            if not groups:
                 continue
             entries = self._mutes.entries(
                 scene_path, refresh=refresh and scene_path not in refreshed)
             refreshed.add(scene_path)
-            muted = {cid for cid, path in paths.items()
-                     if self._mutes.is_muted(scene_path, path, entries)}
+            # Un groupe est muté dès qu'un de ses chemins l'est : le module ne
+            # distinguant pas les assets d'un dossier, un mute posé sur l'un
+            # vaut pour tous — y compris posé depuis un autre outil.
+            muted = {cid for cid, paths in groups.items()
+                     if any(self._mutes.is_muted(scene_path, p, entries)
+                            for p in paths)}
             if muted:
                 stored[edge_key] = muted
         return stored
@@ -1214,10 +1333,11 @@ class MainWindow(QMainWindow):
         """Enregistre le mute/unmute de couples précis ; True si pris en charge.
 
         Un couple = une **version d'asset** vers la **scène enfant** : un
-        ``mute_asset``/``unmute_asset`` par couple, avec le chemin de cette
-        scène. Après l'écriture la cible est relue (``get_scene_mutes``) :
-        l'affichage reflète ce qu'elle contient vraiment, pas l'intention du
-        clic (consigne du module).
+        ``mute_asset``/``unmute_asset`` par chemin, avec celui de cette scène
+        — et **tous les chemins du dossier** du couple, que le module ne sait
+        pas distinguer (voir ``_couple_paths``). Après l'écriture la cible est
+        relue (``get_scene_mutes``) : l'affichage reflète ce qu'elle contient
+        vraiment, pas l'intention du clic (consigne du module).
         """
         if not self._mutes_enabled():
             self._mute_notice = (
@@ -1229,9 +1349,9 @@ class MainWindow(QMainWindow):
             # Affiché par _on_links_changed, qui suit le basculement local.
             self._mute_notice = f"Kept in memory only — {why}."
             return False
-        paths = self._couple_paths(edge_key, couple_ids)
-        missing = [cid for cid in couple_ids if cid not in paths]
-        if not paths:
+        groups = self._couple_paths(edge_key, couple_ids)
+        missing = [cid for cid in couple_ids if cid not in groups]
+        if not groups:
             columns = ", ".join(ds._RAW_PATH_COLUMNS[:4]) + "…"
             self._mute_notice = (
                 f"Kept in memory only — table \"assets\" has no file path "
@@ -1243,7 +1363,10 @@ class MainWindow(QMainWindow):
         # pour pouvoir dire POURQUOI un couple n'a pas suivi.
         with self._mutes.capture_messages() as messages:
             try:
-                for path in paths.values():
+                # Dédoublonné : deux couples d'un même dossier partagent
+                # leurs chemins, inutile d'écrire deux fois.
+                for path in sorted({p for paths in groups.values()
+                                    for p in paths}):
                     write(scene_path, path)
             except Exception as exc:
                 error = str(exc) or exc.__class__.__name__
@@ -1251,7 +1374,8 @@ class MainWindow(QMainWindow):
         target = self._mutes.label
         # Vérification couple par couple : un refus ne porte souvent que sur
         # une partie, et rien ne doit être annoncé comme enregistré à tort.
-        refused = self._refused_couples(edge_key, scene_path, paths, disable)
+        refused = self._refused_couples(edge_key, scene_path, groups,
+                                        disable)
         if error or refused or missing:
             # Le clic doit malgré tout produire son effet : on rend False pour
             # que la vue mute en mémoire ce qui n'a pas été enregistré.
@@ -1263,22 +1387,27 @@ class MainWindow(QMainWindow):
                  if disable else ".")
         # Passe par _mute_notice comme les échecs : le rafraîchissement
         # links_changed qui suit écraserait un showMessage direct.
+        written = len({p for paths in groups.values() for p in paths})
         self._mute_notice = (
-            f"{len(paths)} asset version(s) {verb} in {target} towards "
+            f"{written} asset version(s) {verb} in {target} towards "
             f"{self._graph_result.nodes[edge_key[1]].display_name}{extra}")
         return True
 
-    def _refused_couples(self, edge_key, scene_path, paths, disable):
-        """Libellés des couples dont l'état voulu n'a pas été enregistré."""
+    def _refused_couples(self, edge_key, scene_path, groups, disable):
+        """Libellés des couples dont l'état voulu n'a pas été enregistré.
+
+        Même lecture que ``_compute_db_mutes`` : un groupe compte comme muté
+        dès qu'un de ses chemins l'est.
+        """
         labels = {cid: label for cid, label, _v, _lat, _f, _p
                   in self._graph_result.edge_couples.get(edge_key, ())}
         try:
             entries = self._mutes.entries(scene_path)
-            return [labels.get(cid, cid) for cid, path in paths.items()
-                    if self._mutes.is_muted(scene_path, path, entries)
-                    != disable]
+            return [labels.get(cid, cid) for cid, paths in groups.items()
+                    if any(self._mutes.is_muted(scene_path, p, entries)
+                           for p in paths) != disable]
         except Exception:
-            return [labels.get(cid, cid) for cid in paths]
+            return [labels.get(cid, cid) for cid in groups]
 
     def _mute_failure_message(self, target, couple_ids, refused, error,
                               messages):
@@ -1471,14 +1600,14 @@ class MainWindow(QMainWindow):
                 color = QColor("#8a93a0")
             elif outdated_rows:
                 state = f"{len(outdated_rows)} to update"
-                color = QColor("#b4392c")
+                color = _COL_STALE_TEXT
             elif entry.has_outdated:
                 # Périmée, mais rien ne correspond au filtre de tasks courant.
                 state = "nothing matching the task filter"
                 color = QColor("#8a93a0")
             else:
                 state = "up to date"
-                color = QColor("#1c7a44")
+                color = _COL_OK_TEXT
             if available_rows:
                 state += f" · {len(available_rows)} not imported"
 
@@ -1501,8 +1630,8 @@ class MainWindow(QMainWindow):
             for row in rows:
                 text, stale = _version_state(row.version, row.latest)
                 child = QTreeWidgetItem(top, [row.label, text, ""])
-                child.setForeground(1, QColor("#b4392c") if stale
-                                    else QColor("#1c7a44"))
+                child.setForeground(
+                    1, _COL_STALE_TEXT if stale else _COL_OK_TEXT)
                 tip = self._asset_tooltip(row)
                 child.setToolTip(0, tip)
                 child.setToolTip(1, tip)
@@ -1569,7 +1698,7 @@ class MainWindow(QMainWindow):
             top.setToolTip(0, self._no_date_hint(len(items)) if day is None
                            else f"{len(items)} asset(s) published — "
                                 f"{outdated} outdated in the scenes listed.")
-            top.setForeground(1, QColor("#b4392c") if outdated
+            top.setForeground(1, _COL_STALE_TEXT if outdated
                               else QColor("#8a93a0"))
             font = top.font(0)
             font.setBold(True)
@@ -1586,8 +1715,8 @@ class MainWindow(QMainWindow):
                     child.setForeground(0, _COL_AVAILABLE)
                     child.setForeground(1, _COL_AVAILABLE)
                 else:
-                    child.setForeground(1, QColor("#b4392c") if row.outdated
-                                        else QColor("#1c7a44"))
+                    child.setForeground(
+                        1, _COL_STALE_TEXT if row.outdated else _COL_OK_TEXT)
                 names = sorted({e.display_name for e in users})
                 tip = self._asset_tooltip(
                     row, ("not imported by: " if row.available
@@ -1986,6 +2115,7 @@ def main(argv=None):
         sys.exit(stop.code)
     app = QApplication(argv[:1] + qt_args)
     app.setApplicationName("Dedale — Dependency Graph")
+    apply_dark_theme(app)
     icon = app_icon()
     if not icon.isNull():
         # Au niveau application : hérité par la fenêtre et les dialogues.
@@ -1996,6 +2126,7 @@ def main(argv=None):
                      sandbox=_flag(options.sandbox),
                      debug=_flag(options.debug))
     win.show()
+    dark_title_bar(win)             # après show : la fenêtre native existe
     sys.exit(app.exec())
 
 

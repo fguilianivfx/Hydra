@@ -20,6 +20,8 @@ import os
 import re
 from collections import defaultdict
 
+import data_source as ds
+
 
 class SceneResolutionError(Exception):
     """Le nom de scène saisi n'a pu être résolu vers une scène connue."""
@@ -216,7 +218,8 @@ class GraphResult:
                  "separator_after_row", "stats",
                  "edge_assets", "edge_details", "stale_asset_ids",
                  "stale_edges", "edge_formats", "formats",
-                 "output_consumers", "edge_couples", "output_couples")
+                 "output_consumers", "edge_couples", "output_couples",
+                 "folder_assets")
 
     def __init__(self):
         self.nodes = {}            # key -> SceneNode
@@ -242,6 +245,11 @@ class GraphResult:
         # scènes qui l'importent. Sert à expliquer, au survol, pourquoi une
         # ligne figure dans un rectangle.
         self.output_consumers = {}
+        # Assets publiés dans le même dossier qu'un asset transporté :
+        # dossier -> (chemins, …). Le module de mutes résout par dossier et
+        # refuse de choisir quand plusieurs y cohabitent — on les mute donc
+        # ensemble, à la lecture comme à l'écriture.
+        self.folder_assets = {}
         # Par quels couples chaque output circule :
         # (clé du nœud, libellé) -> ((clé du lien, id du couple), …). Permet
         # de retirer d'un rectangle la seule ligne mutée, sans attendre que
@@ -551,6 +559,22 @@ def build_graph(assets, scenes, binds, input_name):
         edge: _edge_couples(aids, assets, asset_stream_max, raw_scene_names)
         for edge, aids in result.edge_assets.items()
     }
+    # Voisins de publication : tous les assets partageant le dossier d'un
+    # asset transporté, y compris ceux qui ne circulent nulle part.
+    edge_folders = {ds.publish_folder(path)
+                    for couples in result.edge_couples.values()
+                    for *_rest, path in couples if path}
+    edge_folders.discard("")
+    folder_assets = defaultdict(set)
+    if edge_folders:
+        for a in assets.values():
+            path = a.get("path", "")
+            folder = ds.publish_folder(path) if path else ""
+            if folder in edge_folders:
+                folder_assets[folder].add(path)
+    result.folder_assets = {folder: tuple(sorted(paths))
+                            for folder, paths in folder_assets.items()}
+
     # Détail affiché (info-bulle, fenêtre de lien) : même contenu, sans l'id
     # ni le chemin, dédoublonné.
     result.edge_details = {
