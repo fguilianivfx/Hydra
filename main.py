@@ -1279,7 +1279,15 @@ class MainWindow(QMainWindow):
             if not path or (wanted is not None and cid not in wanted):
                 continue
             siblings = result.folder_assets.get(ds.publish_folder(path), ())
-            groups[cid] = tuple(sorted({path} | {p for p in siblings if p}))
+            # Le flux de CE chemin : ses autres versions vivent souvent dans
+            # le même dossier (…/bgeosc/…_paille_v001.bgeo.sc, _v002, _v003)
+            # et ne doivent surtout pas suivre — le module sait les viser.
+            own = {stream for stream, p in siblings if p == path}
+            paths = {path}
+            if own:
+                paths |= {p for stream, p in siblings
+                          if p and stream not in own}
+            groups[cid] = tuple(sorted(paths))
         return groups
 
     def _compute_db_mutes(self, refresh=False):

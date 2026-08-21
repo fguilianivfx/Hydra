@@ -561,16 +561,24 @@ n'importe quelle source :
 > exemple — est repris tel quel : il apparaît muté dans le menu et dans
 > l'info-bulle, sans couper le lien tant que les autres couples passent.
 
-> **Les assets d'un même dossier sont mutés ensemble.** Le module résout un
-> asset par **son dossier** : quand plusieurs y sont publiés — `matlib` et
-> `paille_shd_main` dans un même `hda/`, `chair` et `chair_v001` dans un même
-> `obj/` — il ne sait pas lequel viser et renonce
+> **Les assets d'un même dossier sont mutés ensemble — mais pas leurs
+> versions.** Le module résout un asset par **son dossier** : quand plusieurs
+> **assets** y sont publiés — `matlib` et `paille_shd_main` dans un même
+> `hda/`, `chair` et `chair_v001` dans un même `obj/` — il ne sait pas lequel
+> viser et renonce
 > (`2 different assets share the folder of …, cannot tell which one to
 > mute`). Dedale les traite donc comme un **bloc** : muter un couple mute
 > tous les chemins de son dossier, l'unmute les lève tous, et **la lecture
 > suit la même règle** — un couple est montré muté dès qu'un asset de son
 > dossier l'est, fût-il posé depuis un autre outil. Sans cette symétrie,
 > l'affichage et la base divergeraient au premier aller-retour.
+>
+> Le regroupement s'arrête au **flux** : les autres **versions** du même
+> asset partagent souvent ce dossier (`…_paille_v001.bgeo.sc`, `_v002`,
+> `_v003` côte à côte dans un `bgeosc/`) et ne suivent **jamais** — le module
+> sait les viser, muter la `v002` ne touche ni la `v001` ni la `v003`. Le flux
+> reprend le n-uplet du module : projet, entité, tâche, variante, `node_name`,
+> extension.
 
 > Si le module refuse malgré tout, **le clic produit quand même son effet**
 > (le couple est muté en mémoire, les statuts recalculés) et Dedale **ne
