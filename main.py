@@ -1388,7 +1388,8 @@ class MainWindow(QMainWindow):
             # Le clic doit malgré tout produire son effet : on rend False pour
             # que la vue mute en mémoire ce qui n'a pas été enregistré.
             self._mute_notice = self._mute_failure_message(
-                target, couple_ids, refused + missing, error, list(messages))
+                target, couple_ids, refused + missing, error, list(messages),
+                paths=[p for ps in groups.values() for p in ps])
             return False
         verb = "muted" if disable else "unmuted"
         extra = (" — every session will now start with them muted."
@@ -1417,8 +1418,36 @@ class MainWindow(QMainWindow):
         except Exception:
             return [labels.get(cid, cid) for cid in groups]
 
+    def _folder_clashes(self, paths):
+        """Assets qu'aucun chemin ne permet de distinguer, par dossier.
+
+        Le module résout un asset par son dossier ; quand deux **node_name**
+        y publient la **même extension** (``matlib.hda`` et
+        ``debris_rue_shd_main.hda``), rien dans le chemin ne les sépare et il
+        renonce. On le détecte ici pour pouvoir le dire nous-mêmes, sans
+        dépendre du journal du serveur.
+        """
+        result = self._graph_result
+        clashes = {}
+        for path in paths:
+            for stream, _p in result.folder_assets.get(
+                    ds.publish_folder(path), ()):
+                names = clashes.setdefault(stream[5] or "?", set())
+                names.add(stream[4] or "?")
+        return sorted((ext, tuple(sorted(names)))
+                      for ext, names in clashes.items() if len(names) > 1)
+
+    def _clash_note(self, paths):
+        """Phrase nommant les assets indistinguables, ou '' s'il n'y en a pas."""
+        clashes = self._folder_clashes(paths)
+        if not clashes:
+            return ""
+        ext, names = clashes[0]
+        return (f" {' and '.join(names[:2])} publish the same \"{ext}\" in one"
+                f" folder, so no path can tell them apart.")
+
     def _mute_failure_message(self, target, couple_ids, refused, error,
-                              messages):
+                              messages, paths=()):
         """Explique ce qui n'a pas été enregistré, et si possible pourquoi."""
         head = (f"{len(refused)}/{len(couple_ids)} asset version(s) not "
                 f"recorded in the {target}: {', '.join(refused[:3])}"
@@ -1430,9 +1459,13 @@ class MainWindow(QMainWindow):
         tail = " Applied for this session only."
         if error:
             return f"{head} ({error}).{tail}"
+        # Notre propre diagnostic nomme les assets en cause et tient sur une
+        # ligne : il remplace le journal du module, qui répète le chemin
+        # complet et le n-uplet brut des candidats.
+        note = self._clash_note(paths)
+        if note:
+            return f"{head} —{note}{tail}"
         if messages:
-            # Le message du module est plus précis que tout ce qu'on pourrait
-            # deviner (dossier partagé, asset introuvable…).
             return f"{head} — {messages[0]}{tail}"
         return f"{head}.{tail}"
 

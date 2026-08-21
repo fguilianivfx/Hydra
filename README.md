@@ -580,6 +580,15 @@ n'importe quelle source :
 > reprend le n-uplet du module : projet, entité, tâche, variante, `node_name`,
 > extension.
 
+> Quand la collision est **visible dans nos données** (deux `node_name`
+> publiant la même extension dans un dossier), Dedale la nomme lui-même :
+> `debris_rue_shd_main and matlib publish the same "hda" in one folder, so no
+> path can tell them apart.` — inutile d'aller lire le journal du serveur.
+> Elle ne l'est pas toujours : le module résout depuis la **base**, où deux
+> lignes peuvent revendiquer un même dossier alors qu'un seul fichier existe
+> sur le disque. Dans ce cas c'est son journal qui est relayé, et la
+> correction est côté données.
+
 > Si le module refuse malgré tout, **le clic produit quand même son effet**
 > (le couple est muté en mémoire, les statuts recalculés) et Dedale **ne
 > prétend pas que c'est enregistré** : l'état est revérifié après l'écriture,
