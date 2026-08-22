@@ -6,7 +6,7 @@ fonctions prévues pour un outil interactif :
 
     get_scene_mutes(scene_path)                               -> list
     is_asset_path_muted(scene_path, asset_path, entries=None) -> bool
-    mute_asset(scene_path, asset_path)                        -> bool
+    mute_asset(scene_path, asset_path, all_versions=False)    -> bool
     unmute_asset(scene_path, asset_path)                      -> bool
     unmute_scene(scene_path)                                  -> bool
 
@@ -15,6 +15,24 @@ de l'asset) : pas d'id à chercher, pas de casse à gérer, pas de séquence à
 reconstruire — la normalisation est faite dans ces fonctions. Après chaque
 écriture, ``get_scene_mutes`` est relu pour que l'interface reflète la base
 (consigne du développeur du module).
+
+Ce que le module garantit, et dont Dedale dépend :
+
+* ``mute_asset`` vise par défaut **la version que le chemin désigne** —
+  exactement l'unité que l'outil manipule (couple version d'asset → scène).
+  ``all_versions=True`` muterait toute la famille ; on ne l'utilise pas.
+* un chemin portant **plusieurs** assets (un ``.hda`` tient la bibliothèque
+  publiée *et* l'opérateur importé) est désambiguïsé par le module, qui
+  retient celui qu'une scène **importe réellement**. Rien à grouper de notre
+  côté : le faire muterait l'asset sur lequel personne n'a cliqué.
+* les entrées de ``get_scene_mutes`` sont des n-uplets **opaques** : jamais
+  inspectées ici, seulement repassées à ``is_asset_path_muted``. C'est ce qui
+  a rendu indolore leur passage de 2 à 3 valeurs.
+* ``get_scene_mutes`` préchauffe aussi le cache de résolution du module pour
+  toute la tâche : une lecture par scène, puis des vérifications en mémoire —
+  d'où le cache par scène ci-dessous.
+* ``clear_resolution_caches`` (facultative) oublie ces résolutions ; Dedale
+  l'appelle à chaque nouveau graphe, au cas où la base aurait été corrigée.
 
 NE JAMAIS appeler les autres fonctions du module : ``mute_family``,
 ``load_all_mutes``, ``load_changed_mutes``, ``filter_muted_assets``,
@@ -178,6 +196,7 @@ class MutesStore:
         self._mode = ""          # "sandbox" | "kraken" | "" (indisponible)
         self._error = ""
         self._entries = {}       # scene_path -> liste rendue par get_scene_mutes
+        self._clear_caches = None
         if self._target == "db":
             self._use_kraken()
         else:
@@ -206,6 +225,11 @@ class MutesStore:
                 "unmute_asset": api.unmute_asset,
                 "unmute_scene": api.unmute_scene,
             }
+            # Facultatif : le module mémorise les résolutions chemin -> tâche
+            # et chemin -> asset. Ce sont des faits immuables, mais ils
+            # cessent de l'être quand la base est corrigée sous nos pieds :
+            # on les purge à chaque nouveau graphe.
+            self._clear_caches = getattr(api, "clear_resolution_caches", None)
             self._mode = "kraken"
         except Exception as exc:      # module absent, cassé ou incomplet
             self._api = None
@@ -267,7 +291,14 @@ class MutesStore:
             scene_path, asset_path, entries))
 
     def clear_cache(self):
+        """Oublie nos entrées **et** les résolutions mémorisées du module."""
         self._entries.clear()
+        if self._clear_caches is not None:
+            try:
+                self._clear_caches()
+            except Exception:      # purement une optimisation : jamais bloquant
+                logging.getLogger(__name__).debug(
+                    "clear_resolution_caches a échoué", exc_info=True)
 
     # ------------------------------------------------------------ écriture --
     @contextlib.contextmanager

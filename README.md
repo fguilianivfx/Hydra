@@ -535,7 +535,8 @@ chargé depuis `C:/Program Files/Kraken` ou `DEDALE_KRAKEN_PATH`), depuis
 n'importe quelle source :
 
 * muter un couple appelle `mute_asset(chemin_scène, chemin_asset)` avec le
-  chemin de la **scène enfant** — celle qui importe, jamais la scène parente
+  chemin de la **scène enfant** — sans `all_versions`, donc sur **la version
+  que le chemin désigne**, exactement l'unité que l'outil manipule — celle qui importe, jamais la scène parente
   qui publie. *Mute all* sur un lien à cinq assets pose donc **cinq mutes
   vers cette scène enfant** ; *Unmute* fait de même avec `unmute_asset` ;
 * après **chaque** écriture, `get_scene_mutes()` est **relu** et l'affichage
@@ -561,43 +562,27 @@ n'importe quelle source :
 > exemple — est repris tel quel : il apparaît muté dans le menu et dans
 > l'info-bulle, sans couper le lien tant que les autres couples passent.
 
-> **Les assets d'un même dossier sont mutés ensemble — mais pas leurs
-> versions.** Le module résout un asset par **son dossier** : quand plusieurs
-> **assets** y sont publiés — `matlib` et `paille_shd_main` dans un même
-> `hda/`, `chair` et `chair_v001` dans un même `obj/` — il ne sait pas lequel
-> viser et renonce
-> (`2 different assets share the folder of …, cannot tell which one to
-> mute`). Dedale les traite donc comme un **bloc** : muter un couple mute
-> tous les chemins de son dossier, l'unmute les lève tous, et **la lecture
-> suit la même règle** — un couple est montré muté dès qu'un asset de son
-> dossier l'est, fût-il posé depuis un autre outil. Sans cette symétrie,
-> l'affichage et la base divergeraient au premier aller-retour.
->
-> Le regroupement s'arrête au **flux** : les autres **versions** du même
-> asset partagent souvent ce dossier (`…_paille_v001.bgeo.sc`, `_v002`,
-> `_v003` côte à côte dans un `bgeosc/`) et ne suivent **jamais** — le module
-> sait les viser, muter la `v002` ne touche ni la `v001` ni la `v003`. Le flux
-> reprend le n-uplet du module : projet, entité, tâche, variante, `node_name`,
-> extension.
+> **Un chemin portant plusieurs assets est désambiguïsé par le module.** Un
+> `.hda` tient légitimement la bibliothèque publiée *et* l'opérateur importé
+> plus bas ; le module retient alors celui qu'une scène **importe vraiment**
+> (`_imported_assets`). Dedale ne groupe donc rien de son côté : muter les
+> chemins voisins reviendrait à muter l'asset sur lequel personne n'a cliqué.
+> Quand il ne peut vraiment pas trancher, le module nomme l'axe sur lequel
+> les candidats diffèrent (« they differ on node_name ») et cette ligne est
+> relayée telle quelle dans la barre d'état.
 
-> Quand la collision est **visible dans nos données** (deux `node_name`
-> publiant la même extension dans un dossier), Dedale la nomme lui-même :
-> `debris_rue_shd_main and matlib publish the same "hda" in one folder, so no
-> path can tell them apart.` — inutile d'aller lire le journal du serveur.
-> Elle ne l'est pas toujours : le module résout depuis la **base**, où deux
-> lignes peuvent revendiquer un même dossier alors qu'un seul fichier existe
-> sur le disque. Dans ce cas c'est son journal qui est relayé, et la
-> correction est côté données.
+> **Un mute peut être plus large que la ligne cliquée.** Le module déduit la
+> version du **nom du fichier** ; un `.hda` qui n'en porte pas est muté pour
+> **toutes** les versions, et il l'annonce
+> (`No version could be read from …, muting every version of …`). Cet
+> avertissement est affiché même quand l'écriture réussit, pour qu'aucun mute
+> élargi ne passe inaperçu.
 
-> Si le module refuse malgré tout, **le clic produit quand même son effet**
-> (le couple est muté en mémoire, les statuts recalculés) et Dedale **ne
-> prétend pas que c'est enregistré** : l'état est revérifié après l'écriture,
-> et la barre d'état affiche ce qui n'est pas passé, la raison du module et
-> la portée : `1/2 asset version(s) not recorded in the DB: … — 2 different
-> assets share the folder of …  Applied for this session only.` Dedale
-> n'utilise pas `mute_family` pour contourner : c'est une fonction de la
-> couche cron, qui écrirait le mute **avec la mauvaise tâche** — or un mute
-> vise ici une scène enfant précise.
+> **Cache de résolution.** `get_scene_mutes` préchauffe, en une requête, la
+> résolution des assets de toute la tâche : la vérification des dépendances
+> qui suit se fait alors en mémoire. Ces résolutions sont des faits
+> immuables, sauf quand la base est corrigée sous nos pieds — chaque *Graph*
+> appelle donc `clear_resolution_caches()`, quand le module l'expose.
 
 Seules les **cinq fonctions prévues** pour un outil interactif sont
 utilisées : `get_scene_mutes`, `is_asset_path_muted`, `mute_asset`,

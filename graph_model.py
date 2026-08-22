@@ -20,8 +20,6 @@ import os
 import re
 from collections import defaultdict
 
-import data_source as ds
-
 
 class SceneResolutionError(Exception):
     """Le nom de scène saisi n'a pu être résolu vers une scène connue."""
@@ -218,8 +216,7 @@ class GraphResult:
                  "separator_after_row", "stats",
                  "edge_assets", "edge_details", "stale_asset_ids",
                  "stale_edges", "edge_formats", "formats",
-                 "output_consumers", "edge_couples", "output_couples",
-                 "folder_assets")
+                 "output_consumers", "edge_couples", "output_couples")
 
     def __init__(self):
         self.nodes = {}            # key -> SceneNode
@@ -245,13 +242,6 @@ class GraphResult:
         # scènes qui l'importent. Sert à expliquer, au survol, pourquoi une
         # ligne figure dans un rectangle.
         self.output_consumers = {}
-        # Assets publiés dans le même dossier qu'un asset transporté :
-        # dossier -> ((flux, chemin), …). Le module de mutes résout par
-        # dossier et refuse de choisir quand plusieurs **assets** y
-        # cohabitent — on les mute alors ensemble. Le flux est joint pour
-        # distinguer ce cas des simples **versions** d'un même asset, que le
-        # module sait viser et qui ne doivent surtout pas être groupées.
-        self.folder_assets = {}
         # Par quels couples chaque output circule :
         # (clé du nœud, libellé) -> ((clé du lien, id du couple), …). Permet
         # de retirer d'un rectangle la seule ligne mutée, sans attendre que
@@ -561,22 +551,6 @@ def build_graph(assets, scenes, binds, input_name):
         edge: _edge_couples(aids, assets, asset_stream_max, raw_scene_names)
         for edge, aids in result.edge_assets.items()
     }
-    # Voisins de publication : tous les assets partageant le dossier d'un
-    # asset transporté, y compris ceux qui ne circulent nulle part.
-    edge_folders = {ds.publish_folder(path)
-                    for couples in result.edge_couples.values()
-                    for *_rest, path in couples if path}
-    edge_folders.discard("")
-    folder_assets = defaultdict(set)
-    if edge_folders:
-        for a in assets.values():
-            path = a.get("path", "")
-            folder = ds.publish_folder(path) if path else ""
-            if folder in edge_folders:
-                folder_assets[folder].add((asset_stream(a), path))
-    result.folder_assets = {folder: tuple(sorted(entries))
-                            for folder, entries in folder_assets.items()}
-
     # Détail affiché (info-bulle, fenêtre de lien) : même contenu, sans l'id
     # ni le chemin, dédoublonné.
     result.edge_details = {
@@ -828,18 +802,6 @@ def _input_is_stale(asset, asset_stream_max):
               asset["av_name"], asset["node_name"])
     latest = asset_stream_max.get(stream)
     return latest is not None and asset["version"] < latest
-
-
-def asset_stream(asset):
-    """Identité d'un asset, versions confondues.
-
-    Reprend le n-uplet sur lequel le module de mutes raisonne (projet,
-    entité, tâche, variante, node_name, extension) : deux entrées qui n'en
-    diffèrent que par la **version** sont le même asset.
-    """
-    return (asset.get("project", ""), asset.get("entity_name", ""),
-            asset.get("task_name", ""), asset.get("av_name", ""),
-            asset.get("node_name", ""), asset.get("format", ""))
 
 
 def couple_id(path, label, version):

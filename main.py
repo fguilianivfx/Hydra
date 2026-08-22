@@ -1091,6 +1091,9 @@ class MainWindow(QMainWindow):
                         title="Error")
             return
 
+        # Nouveau graphe : les résolutions mémorisées par le module de mutes
+        # peuvent dater d'avant une correction en base.
+        self._mutes.clear_cache()
         # La sécurité porte sur la source qui a produit CE graphe.
         self._graph_result = result
         self._graph_source = self._current_source()
@@ -1259,36 +1262,21 @@ class MainWindow(QMainWindow):
                     f"({columns}) in this source")
 
     def _couple_paths(self, edge_key, couple_ids=None):
-        """{id de couple: (chemins à muter ensemble, …)}.
+        """{id de couple: chemin publié} pour les couples demandés.
 
-        Le chemin du couple, **plus tous ceux publiés dans le même dossier**.
-        Le module résout un asset par son dossier : quand plusieurs y
-        cohabitent (``matlib`` et ``paille_shd_main``, ``chair`` et
-        ``chair_v001``), il ne sait pas lequel viser et renonce. On les traite
-        donc comme un bloc — à l'écriture comme à la lecture, sans quoi
-        l'affichage et la base divergeraient.
+        Un chemin par couple, et rien d'autre : c'est le module qui lève les
+        ambiguïtés de dossier, en retenant l'asset qu'une scène **importe
+        vraiment** (``_imported_assets``). Un `.hda` porte légitimement
+        plusieurs assets, et grouper leurs chemins ici muterait celui sur
+        lequel personne n'a cliqué.
 
         Un couple sans chemin (source sans colonne dédiée) est absent : il
         restera mutable en mémoire seulement.
         """
-        result = self._graph_result
-        couples = result.edge_couples.get(edge_key, ())
+        couples = self._graph_result.edge_couples.get(edge_key, ())
         wanted = None if couple_ids is None else set(couple_ids)
-        groups = {}
-        for cid, _l, _v, _lat, _f, path in couples:
-            if not path or (wanted is not None and cid not in wanted):
-                continue
-            siblings = result.folder_assets.get(ds.publish_folder(path), ())
-            # Le flux de CE chemin : ses autres versions vivent souvent dans
-            # le même dossier (…/bgeosc/…_paille_v001.bgeo.sc, _v002, _v003)
-            # et ne doivent surtout pas suivre — le module sait les viser.
-            own = {stream for stream, p in siblings if p == path}
-            paths = {path}
-            if own:
-                paths |= {p for stream, p in siblings
-                          if p and stream not in own}
-            groups[cid] = tuple(sorted(paths))
-        return groups
+        return {cid: path for cid, _l, _v, _lat, _f, path in couples
+                if path and (wanted is None or cid in wanted)}
 
     def _compute_db_mutes(self, refresh=False):
         """{lien: {couples mutés}} d'après la cible d'écriture.
@@ -1303,18 +1291,14 @@ class MainWindow(QMainWindow):
             scene_path, _why = self._mute_scene_path(edge_key)
             if not scene_path:
                 continue
-            groups = self._couple_paths(edge_key)
-            if not groups:
+            paths = self._couple_paths(edge_key)
+            if not paths:
                 continue
             entries = self._mutes.entries(
                 scene_path, refresh=refresh and scene_path not in refreshed)
             refreshed.add(scene_path)
-            # Un groupe est muté dès qu'un de ses chemins l'est : le module ne
-            # distinguant pas les assets d'un dossier, un mute posé sur l'un
-            # vaut pour tous — y compris posé depuis un autre outil.
-            muted = {cid for cid, paths in groups.items()
-                     if any(self._mutes.is_muted(scene_path, p, entries)
-                            for p in paths)}
+            muted = {cid for cid, path in paths.items()
+                     if self._mutes.is_muted(scene_path, path, entries)}
             if muted:
                 stored[edge_key] = muted
         return stored
@@ -1357,9 +1341,9 @@ class MainWindow(QMainWindow):
             # Affiché par _on_links_changed, qui suit le basculement local.
             self._mute_notice = f"Kept in memory only — {why}."
             return False
-        groups = self._couple_paths(edge_key, couple_ids)
-        missing = [cid for cid in couple_ids if cid not in groups]
-        if not groups:
+        paths = self._couple_paths(edge_key, couple_ids)
+        missing = [cid for cid in couple_ids if cid not in paths]
+        if not paths:
             columns = ", ".join(ds._RAW_PATH_COLUMNS[:4]) + "…"
             self._mute_notice = (
                 f"Kept in memory only — table \"assets\" has no file path "
@@ -1371,10 +1355,7 @@ class MainWindow(QMainWindow):
         # pour pouvoir dire POURQUOI un couple n'a pas suivi.
         with self._mutes.capture_messages() as messages:
             try:
-                # Dédoublonné : deux couples d'un même dossier partagent
-                # leurs chemins, inutile d'écrire deux fois.
-                for path in sorted({p for paths in groups.values()
-                                    for p in paths}):
+                for path in paths.values():
                     write(scene_path, path)
             except Exception as exc:
                 error = str(exc) or exc.__class__.__name__
@@ -1382,72 +1363,42 @@ class MainWindow(QMainWindow):
         target = self._mutes.label
         # Vérification couple par couple : un refus ne porte souvent que sur
         # une partie, et rien ne doit être annoncé comme enregistré à tort.
-        refused = self._refused_couples(edge_key, scene_path, groups,
-                                        disable)
+        refused = self._refused_couples(edge_key, scene_path, paths, disable)
         if error or refused or missing:
             # Le clic doit malgré tout produire son effet : on rend False pour
             # que la vue mute en mémoire ce qui n'a pas été enregistré.
             self._mute_notice = self._mute_failure_message(
-                target, couple_ids, refused + missing, error, list(messages),
-                paths=[p for ps in groups.values() for p in ps])
+                target, couple_ids, refused + missing, error, list(messages))
             return False
         verb = "muted" if disable else "unmuted"
         extra = (" — every session will now start with them muted."
                  if disable else ".")
+        if messages:
+            # Le module avertit quand il élargit un mute : un « .hda » dont le
+            # nom ne porte pas de version est muté pour TOUTES les versions.
+            # C'est plus large que la ligne cliquée, il faut le dire.
+            extra = f" — {messages[0]}"
         # Passe par _mute_notice comme les échecs : le rafraîchissement
         # links_changed qui suit écraserait un showMessage direct.
-        written = len({p for paths in groups.values() for p in paths})
         self._mute_notice = (
-            f"{written} asset version(s) {verb} in {target} towards "
+            f"{len(paths)} asset version(s) {verb} in {target} towards "
             f"{self._graph_result.nodes[edge_key[1]].display_name}{extra}")
         return True
 
-    def _refused_couples(self, edge_key, scene_path, groups, disable):
-        """Libellés des couples dont l'état voulu n'a pas été enregistré.
-
-        Même lecture que ``_compute_db_mutes`` : un groupe compte comme muté
-        dès qu'un de ses chemins l'est.
-        """
+    def _refused_couples(self, edge_key, scene_path, paths, disable):
+        """Libellés des couples dont l'état voulu n'a pas été enregistré."""
         labels = {cid: label for cid, label, _v, _lat, _f, _p
                   in self._graph_result.edge_couples.get(edge_key, ())}
         try:
             entries = self._mutes.entries(scene_path)
-            return [labels.get(cid, cid) for cid, paths in groups.items()
-                    if any(self._mutes.is_muted(scene_path, p, entries)
-                           for p in paths) != disable]
+            return [labels.get(cid, cid) for cid, path in paths.items()
+                    if self._mutes.is_muted(scene_path, path, entries)
+                    != disable]
         except Exception:
-            return [labels.get(cid, cid) for cid in groups]
-
-    def _folder_clashes(self, paths):
-        """Assets qu'aucun chemin ne permet de distinguer, par dossier.
-
-        Le module résout un asset par son dossier ; quand deux **node_name**
-        y publient la **même extension** (``matlib.hda`` et
-        ``debris_rue_shd_main.hda``), rien dans le chemin ne les sépare et il
-        renonce. On le détecte ici pour pouvoir le dire nous-mêmes, sans
-        dépendre du journal du serveur.
-        """
-        result = self._graph_result
-        clashes = {}
-        for path in paths:
-            for stream, _p in result.folder_assets.get(
-                    ds.publish_folder(path), ()):
-                names = clashes.setdefault(stream[5] or "?", set())
-                names.add(stream[4] or "?")
-        return sorted((ext, tuple(sorted(names)))
-                      for ext, names in clashes.items() if len(names) > 1)
-
-    def _clash_note(self, paths):
-        """Phrase nommant les assets indistinguables, ou '' s'il n'y en a pas."""
-        clashes = self._folder_clashes(paths)
-        if not clashes:
-            return ""
-        ext, names = clashes[0]
-        return (f" {' and '.join(names[:2])} publish the same \"{ext}\" in one"
-                f" folder, so no path can tell them apart.")
+            return [labels.get(cid, cid) for cid in paths]
 
     def _mute_failure_message(self, target, couple_ids, refused, error,
-                              messages, paths=()):
+                              messages):
         """Explique ce qui n'a pas été enregistré, et si possible pourquoi."""
         head = (f"{len(refused)}/{len(couple_ids)} asset version(s) not "
                 f"recorded in the {target}: {', '.join(refused[:3])}"
@@ -1459,13 +1410,10 @@ class MainWindow(QMainWindow):
         tail = " Applied for this session only."
         if error:
             return f"{head} ({error}).{tail}"
-        # Notre propre diagnostic nomme les assets en cause et tient sur une
-        # ligne : il remplace le journal du module, qui répète le chemin
-        # complet et le n-uplet brut des candidats.
-        note = self._clash_note(paths)
-        if note:
-            return f"{head} —{note}{tail}"
         if messages:
+            # Le module nomme lui-même l'axe sur lequel les candidats
+            # diffèrent (« they differ on node_name ») : plus précis que tout
+            # ce qu'on pourrait reconstituer d'ici.
             return f"{head} — {messages[0]}{tail}"
         return f"{head}.{tail}"
 

@@ -268,19 +268,6 @@ def resolve_format_column(columns, samples=()):
     return "", ""
 
 
-def publish_folder(path):
-    """Dossier de publication d'un chemin, normalisé ('' si aucun).
-
-    Le module de mutes du studio résout un asset par **son dossier** : deux
-    exports publiés côte à côte (``matlib`` et ``paille_shd_main``, ``chair``
-    et ``chair_v001``…) lui sont indissociables, et il refuse de choisir.
-    Ce regroupement sert donc à les traiter ensemble.
-    """
-    text = norm_str(path).replace("\\", "/")
-    folder = text.rsplit("/", 1)[0] if "/" in text else ""
-    return folder.rstrip("/").lower()
-
-
 def _asset_format(get, spec):
     column, mode = spec or ("", "")
     if not column:
