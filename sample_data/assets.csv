@@ -1,22 +1,22 @@
-id,project,entity_name,task_name,av_name,node_name,version,name,author,date,format,path
-1,qua,077_02000,modeling,,chaise,5,chaise,toto,2026-01-01 10:00,abc,P:/prods/qua/077_02000/modeling/publish/chaise/v005/chaise.abc
-2,qua,077_02000,modeling,,table,5,table,toto,2026-02-02 11:07,abc,P:/prods/qua/077_02000/modeling/publish/table/v005/table.abc
-3,qua,077_02000,modeling,,chaise,7,chaise,toto,2026-03-03 12:14,abc,P:/prods/qua/077_02000/modeling/publish/chaise/v007/chaise.abc
-4,qua,077_02000,modeling,,table,7,table,toto,2026-04-04 13:21,abc,P:/prods/qua/077_02000/modeling/publish/table/v007/table.abc
-5,qua,077_02000,rigging,,chaise_rig,3,chaise_rig,ana,2026-05-05 14:28,hda,P:/prods/qua/077_02000/rigging/publish/chaise_rig/v003/chaise_rig.hda
-6,qua,077_02000,shading,,chaise_shd,2,chaise_shd,bob,2026-06-06 15:35,rs,P:/prods/qua/077_02000/shading/publish/chaise_shd/v002/chaise_shd.rs
-7,qua,077_02000,shading,,table_shd,2,table_shd,bob,2026-07-07 16:42,rs,P:/prods/qua/077_02000/shading/publish/table_shd/v002/table_shd.rs
-8,qua,077_02000,tracking,,camera_track,6,camera_track,lea,2026-08-08 17:49,abc,P:/prods/qua/077_02000/tracking/publish/camera_track/v006/camera_track.abc
-9,qua,077_02000,layout,,layout_cache,8,layout_cache,max,2026-09-09 18:56,usd,P:/prods/qua/077_02000/layout/publish/layout_cache/v008/layout_cache.usd
-10,qua,077_02000,animation,,chaise_anim,12,chaise_anim,jo,2026-01-10 19:03,abc,P:/prods/qua/077_02000/animation/publish/chaise_anim/v012/chaise_anim.abc
-11,qua,077_02000,animation,,quasimodo,12,quasimodo,jo,2026-02-11 10:10,abc,P:/prods/qua/077_02000/animation/publish/quasimodo/v012/quasimodo.abc
-12,qua,077_02000,animation,,quasimodo,14,quasimodo,jo,2026-03-12 11:17,abc,P:/prods/qua/077_02000/animation/publish/quasimodo/v014/quasimodo.abc
-13,qua,077_02000,lighting,main,render,4,render,kim,2026-04-13 12:24,exr,P:/prods/qua/077_02000/lighting/publish/render/v004/render.exr
-14,qua,077_02000,lighting,main,deep,4,deep,kim,2026-05-14 13:31,exr,P:/prods/qua/077_02000/lighting/publish/deep/v004/deep.exr
-15,qua,077_02000,lighting,main,camera_layer_01_camera_abc,4,camera_layer_01_camera_abc,kim,2026-06-15 14:38,exr,P:/prods/qua/077_02000/lighting/publish/camera_layer_01_camera_abc/v004/camera_layer_01_camera_abc.exr
-20,qua,077_03000,animation,,char_anim,9,char_anim,jo,2026-07-16 15:45,abc,P:/prods/qua/077_03000/animation/publish/char_anim/v009/char_anim.abc
-21,qua,077_03000,animation,,char_anim,11,char_anim,jo,2026-08-17 16:52,abc,P:/prods/qua/077_03000/animation/publish/char_anim/v011/char_anim.abc
-22,qua,077_03000,fx,,smoke,3,smoke,sebastien ginestra,2026-09-18 17:59,bgeo.sc,P:/prods/qua/077_03000/fx/publish/smoke/v003/smoke.bgeo.sc
-23,qua,077_03000,fx,,smoke,5,smoke,sebastien ginestra,2026-01-19 18:06,bgeo.sc,P:/prods/qua/077_03000/fx/publish/smoke/v005/smoke.bgeo.sc
-24,qua,077_03000,fx,,debris,5,debris,sebastien ginestra,2026-02-20 19:13,vdb,P:/prods/qua/077_03000/fx/publish/debris/v005/debris.vdb
-25,qua,077_03000,lighting,,render,2,render,kim,2026-03-21 10:20,exr,P:/prods/qua/077_03000/lighting/publish/render/v002/render.exr
+id,project,entity_name,task_name,av_name,node_name,version,name,author,date,format,extension,path
+1,qua,077_02000,modeling,,chaise,5,chaise,toto,2026-01-01 10:00,abc,.abc,P:/prods/qua/077_02000/modeling/publish/chaise/v005/chaise.abc
+2,qua,077_02000,modeling,,table,5,table,toto,2026-02-02 11:07,abc,.abc,P:/prods/qua/077_02000/modeling/publish/table/v005/table.abc
+3,qua,077_02000,modeling,,chaise,7,chaise,toto,2026-03-03 12:14,abc,.abc,P:/prods/qua/077_02000/modeling/publish/chaise/v007/chaise.abc
+4,qua,077_02000,modeling,,table,7,table,toto,2026-04-04 13:21,abc,.abc,P:/prods/qua/077_02000/modeling/publish/table/v007/table.abc
+5,qua,077_02000,rigging,,chaise_rig,3,chaise_rig,ana,2026-05-05 14:28,hda,.hda,P:/prods/qua/077_02000/rigging/publish/chaise_rig/v003/chaise_rig.hda
+6,qua,077_02000,shading,,chaise_shd,2,chaise_shd,bob,2026-06-06 15:35,rs,.rs,P:/prods/qua/077_02000/shading/publish/chaise_shd/v002/chaise_shd.rs
+7,qua,077_02000,shading,,table_shd,2,table_shd,bob,2026-07-07 16:42,rs,.rs,P:/prods/qua/077_02000/shading/publish/table_shd/v002/table_shd.rs
+8,qua,077_02000,tracking,,camera_track,6,camera_track,lea,2026-08-08 17:49,abc,.abc,P:/prods/qua/077_02000/tracking/publish/camera_track/v006/camera_track.abc
+9,qua,077_02000,layout,,layout_cache,8,layout_cache,max,2026-09-09 18:56,usd,.usd,P:/prods/qua/077_02000/layout/publish/layout_cache/v008/layout_cache.usd
+10,qua,077_02000,animation,,chaise_anim,12,chaise_anim,jo,2026-01-10 19:03,abc,.abc,P:/prods/qua/077_02000/animation/publish/chaise_anim/v012/chaise_anim.abc
+11,qua,077_02000,animation,,quasimodo,12,quasimodo,jo,2026-02-11 10:10,abc,.abc,P:/prods/qua/077_02000/animation/publish/quasimodo/v012/quasimodo.abc
+12,qua,077_02000,animation,,quasimodo,14,quasimodo,jo,2026-03-12 11:17,abc,.abc,P:/prods/qua/077_02000/animation/publish/quasimodo/v014/quasimodo.abc
+13,qua,077_02000,lighting,main,render,4,render,kim,2026-04-13 12:24,exr,.exr,P:/prods/qua/077_02000/lighting/publish/render/v004/render.exr
+14,qua,077_02000,lighting,main,deep,4,deep,kim,2026-05-14 13:31,exr,.exr,P:/prods/qua/077_02000/lighting/publish/deep/v004/deep.exr
+15,qua,077_02000,lighting,main,camera_layer_01_camera_abc,4,camera_layer_01_camera_abc,kim,2026-06-15 14:38,exr,.exr,P:/prods/qua/077_02000/lighting/publish/camera_layer_01_camera_abc/v004/camera_layer_01_camera_abc.exr
+20,qua,077_03000,animation,,char_anim,9,char_anim,jo,2026-07-16 15:45,abc,.abc,P:/prods/qua/077_03000/animation/publish/char_anim/v009/char_anim.abc
+21,qua,077_03000,animation,,char_anim,11,char_anim,jo,2026-08-17 16:52,abc,.abc,P:/prods/qua/077_03000/animation/publish/char_anim/v011/char_anim.abc
+22,qua,077_03000,fx,,smoke,3,smoke,sebastien ginestra,2026-09-18 17:59,bgeo.sc,.sc,P:/prods/qua/077_03000/fx/publish/smoke/v003/smoke.bgeo.sc
+23,qua,077_03000,fx,,smoke,5,smoke,sebastien ginestra,2026-01-19 18:06,bgeo.sc,.sc,P:/prods/qua/077_03000/fx/publish/smoke/v005/smoke.bgeo.sc
+24,qua,077_03000,fx,,debris,5,debris,sebastien ginestra,2026-02-20 19:13,vdb,.vdb,P:/prods/qua/077_03000/fx/publish/debris/v005/debris.vdb
+25,qua,077_03000,lighting,,render,2,render,kim,2026-03-21 10:20,exr,.exr,P:/prods/qua/077_03000/lighting/publish/render/v002/render.exr

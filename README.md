@@ -422,14 +422,17 @@ Colonnes **requises** (les autres sont ignorées) :
   (`dd`) qui ne sert que de clé de flux pour le versionnage ; **date** de
   publication (`date`, `created_at`… ou détectée), **graphiste** (`artist`,
   `author`…), **format** (`format`, `ext`… ou l'extension d'un chemin), qui
-  alimente la liste *Show formats*, et **chemin publié** (`path`,
-  `file_path`, `output`…), requis pour enregistrer les mutes en base (voir
+  alimente la liste *Show formats*, **`extension`** telle que la base la
+  porte (`.hda`, `.obj`) et **chemin publié** (`path`, `file_path`,
+  `output`…) : ces deux dernières servent à enregistrer les mutes en base,
+  la première par la couche « FROM ROWS », la seconde par le repli (voir
   *Muter des assets sur un lien*).
 * **`scenes.csv`** : `id, name, project, entity_name, task_name, av_name,
   version` — le titre du rectangle reprend `name` + version ; colonnes
   facultatives : **graphiste** (`artist`, `user`, `created_by`…) pour le
-  survol, et **chemin du fichier scène** (`path`, `scene_path`…), requis lui
-  aussi pour les mutes en base.
+  survol, **`task_id`** et **chemin du fichier scène** (`path`,
+  `scene_path`…), qui servent aux mutes en base dans le même ordre de
+  préférence.
 * **`binds.csv`** : `asset_id, scene_id, active`
 
 Conversions : `version` → entier (vide / non numérique → *inconnu*) ;
@@ -532,65 +535,94 @@ input périmé passait par un couple muté redevient vert.
 
 **L'enregistrement** passe par le module Kraken (`dd.utils.assets_mutes`,
 chargé depuis `C:/Program Files/Kraken` ou `DEDALE_KRAKEN_PATH`), depuis
-n'importe quelle source :
+n'importe quelle source. Le module offre deux couches pour un outil
+interactif ; Dedale prend la première dès qu'elle est utilisable.
 
-* muter un couple appelle `mute_asset(chemin_scène, chemin_asset)` avec le
-  chemin de la **scène enfant** — sans `all_versions`, donc sur **la version
-  que le chemin désigne**, exactement l'unité que l'outil manipule — celle qui importe, jamais la scène parente
-  qui publie. *Mute all* sur un lien à cinq assets pose donc **cinq mutes
-  vers cette scène enfant** ; *Unmute* fait de même avec `unmute_asset` ;
-* après **chaque** écriture, `get_scene_mutes()` est **relu** et l'affichage
-  se resynchronise sur ce que la cible contient vraiment (consigne du
-  développeur du module). Ses entrées sont traitées comme **opaques** : elles
-  ne sont jamais inspectées, seulement repassées à `is_asset_path_muted`.
-  C'est ce qui a rendu indolore leur passage de 2 à 3 valeurs (ajout de la
-  version) lors de la mise à jour du module ;
+##### Couche « FROM ROWS » (celle employée)
+
+C'est la couche que le module destine à « *a tool that walks the tracking
+tables itself* » — Dedale, qui a déjà toutes ces lignes en mémoire. Il lui
+passe donc les **lignes brutes** des tables plutôt que des chemins :
+
+* muter un couple appelle `mute_asset_row(task_id_scène, ligne_asset)` avec
+  la **tâche de la scène enfant** — celle qui importe, jamais la scène
+  parente qui publie — et la ligne `assets` du couple. *Mute all* sur un lien
+  à cinq assets pose donc **cinq mutes vers cette tâche** ; *Unmute* fait de
+  même avec `unmute_asset_row` ;
+* **aucune résolution de chemin**, donc **aucune ambiguïté possible**. Un
+  dossier partagé par deux assets — un `.hda` de bibliothèque et l'opérateur
+  importé, ou `chair` et `chair_v001` publiés côte à côte — faisait renoncer
+  le module (« *2 different assets share the folder of …, cannot tell which
+  one to mute* ») ; une ligne, elle, ne se confond avec rien ;
+* **la version mutée est celle de la ligne.** Par les chemins, le module la
+  déduisait du **nom du fichier** : une matlib `.hda` qui n'en porte pas
+  était mutée pour **toutes** les versions. Ici c'est la version réellement
+  importée qui est mutée, et elle seule ;
+* les valeurs transmises sont celles de la base, **non normalisées** — le
+  point de `.hda` compris. C'est le même enregistrement de part et d'autre :
+  la correspondance est exacte par construction. La valeur normalisée par
+  l'outil (`hda`, `bgeo.sc`) ne sort jamais d'ici ;
+* la lecture est `get_task_mutes(task_id)`, **une par tâche** : toutes les
+  versions d'une même scène la partagent, donc un graphe de dix liens tient
+  souvent en six lectures.
+
+Cette couche exige que la source donne `scenes.task_id` **et**
+`assets.extension` ; c'est le cas de la base du studio.
+
+##### Couche par chemins (repli automatique)
+
+Quand la source ne donne pas ces colonnes — ou quand le module installé sur
+le poste n'expose pas encore la première couche, même partiellement — Dedale
+retombe sans bruit sur `mute_asset(chemin_scène, chemin_asset)` /
+`unmute_asset`, avec le chemin de la scène enfant. Le comportement est celui
+d'avant la bascule, ambiguïtés de dossier comprises. La barre d'état indique
+laquelle des deux est employée (*by asset rows* / *by file paths*).
+
+##### Commun aux deux couches
+
+* après **chaque** écriture, la cible est **relue** et l'affichage se
+  resynchronise sur ce qu'elle contient vraiment, pas sur l'intention du clic
+  (consigne du développeur du module). Les entrées rendues sont traitées
+  comme **opaques** : jamais inspectées, seulement repassées au test
+  d'appartenance. C'est ce qui a rendu indolore leur passage de 2 à 3 valeurs
+  lors d'une mise à jour du module ;
 * à chaque *Graph* — donc aussi dans une **nouvelle session** — les couples
   enregistrés sont relus et réappliqués (« *n muted link(s) restored…* ») :
   **on retrouve le même état d'une session à l'autre**, depuis n'importe quel
   poste ;
-* une **version** d'asset est identifiée par son **chemin publié** ; sans
-  colonne de chemin, elle l'est par `libellé|vNNN`, de sorte que deux
-  versions d'un même flux ne se confondent jamais ;
-* tout se parle en **chemins bruts** (colonnes `path`/`file_path`/… des
-  tables `scenes` et `assets`) — pas d'id à chercher ni de séquence à
-  reconstruire, la normalisation est faite dans les fonctions du module. Si
-  la source n'expose pas ces chemins (le `dump.sql` d'exemple, par exemple),
-  le mute reste **en mémoire seulement** et la barre d'état le dit.
+* une **version** d'asset est identifiée dans l'interface par son **chemin
+  publié suffixé de sa version** (`…/matlib.hda|v2`) ; sans colonne de
+  chemin, par `libellé|vNNN`. Le suffixe n'est pas décoratif : une
+  bibliothèque republiée au même endroit partage jusqu'à son chemin entre
+  versions, qui se confondraient sinon en un seul couple ;
+* si ni `task_id` ni chemin ne sont disponibles (le `dump.sql` d'exemple, par
+  exemple), le mute reste **en mémoire seulement** et la barre d'état le dit.
 
 > **Un couple muté ailleurs** — posé depuis un autre outil, le standalone par
 > exemple — est repris tel quel : il apparaît muté dans le menu et dans
 > l'info-bulle, sans couper le lien tant que les autres couples passent.
 
-> **Un chemin portant plusieurs assets est désambiguïsé par le module.** Un
-> `.hda` tient légitimement la bibliothèque publiée *et* l'opérateur importé
-> plus bas ; le module retient alors celui qu'une scène **importe vraiment**
-> (`_imported_assets`). Dedale ne groupe donc rien de son côté : muter les
-> chemins voisins reviendrait à muter l'asset sur lequel personne n'a cliqué.
-> Quand il ne peut vraiment pas trancher, le module nomme l'axe sur lequel
-> les candidats diffèrent (« they differ on node_name ») et cette ligne est
-> relayée telle quelle dans la barre d'état.
+> **Ce que le module journalise est affiché.** Il signale ses refus et ses
+> élargissements par des lignes de log plutôt que par des exceptions : elles
+> sont recueillies pendant l'écriture et remontées dans la barre d'état,
+> **même quand l'écriture réussit**, pour qu'aucun mute inattendu ne passe
+> inaperçu.
 
-> **Un mute peut être plus large que la ligne cliquée.** Le module déduit la
-> version du **nom du fichier** ; un `.hda` qui n'en porte pas est muté pour
-> **toutes** les versions, et il l'annonce
-> (`No version could be read from …, muting every version of …`). Cet
-> avertissement est affiché même quand l'écriture réussit, pour qu'aucun mute
-> élargi ne passe inaperçu.
-
-> **Cache de résolution.** `get_scene_mutes` préchauffe, en une requête, la
+> **Cache de résolution.** La lecture préchauffe, en une requête, la
 > résolution des assets de toute la tâche : la vérification des dépendances
 > qui suit se fait alors en mémoire. Ces résolutions sont des faits
 > immuables, sauf quand la base est corrigée sous nos pieds — chaque *Graph*
 > appelle donc `clear_resolution_caches()`, quand le module l'expose.
 
-Seules les **cinq fonctions prévues** pour un outil interactif sont
-utilisées : `get_scene_mutes`, `is_asset_path_muted`, `mute_asset`,
-`unmute_asset`, `unmute_scene`. La couche de la tâche cron qui rafraîchit les
-statuts côté serveur (`mute_family`, `load_all_mutes`, `load_changed_mutes`,
-`filter_muted_assets`, `mutes_of_task`, `delete_inactive_mutes`) n'est
-**jamais** appelée : depuis un outil, elle ferait une requête par ligne
-affichée, ou écrirait un mute avec la mauvaise tâche.
+Seules les fonctions prévues pour un outil interactif sont utilisées :
+`get_task_mutes`, `is_asset_muted`, `mute_asset_row`, `unmute_asset_row`
+(couche « rows »), `get_scene_mutes`, `is_asset_path_muted`, `mute_asset`,
+`unmute_asset`, `unmute_scene` (couche par chemins). La couche de la tâche
+cron qui rafraîchit les statuts côté serveur (`mute_family`,
+`load_all_mutes`, `load_changed_mutes`, `filter_muted_assets`,
+`mutes_of_task`, `delete_inactive_mutes`) n'est **jamais** appelée : depuis
+un outil, elle ferait une requête par ligne affichée, ou écrirait un mute
+avec la mauvaise tâche.
 
 #### Bac à sable (`-sb 1`) et réglages avancés
 
@@ -764,7 +796,7 @@ rend exactement la disposition de départ.
 | `graph_model.py`  | Résolution du nom, parcours scenes+binds, regroupement, statut, disposition. |
 | `graph_view.py`   | `QGraphicsScene`/`QGraphicsView`, items nœud & arête, drag horizontal, survol, zoom/pan. |
 | `artist_model.py` | Outil « Graphist to graph » : scènes d'un graphiste, imports périmés, assets disponibles, dates de publication. |
-| `mutes_store.py`  | Persistance des liens muted via `dd.utils.assets_mutes` (Kraken) — les cinq fonctions autorisées, cache `get_scene_mutes`, bac à sable JSON en option, repli mémoire. |
+| `mutes_store.py`  | Persistance des liens muted via `dd.utils.assets_mutes` (Kraken) — couche « FROM ROWS » préférée, repli par chemins, cache de lecture par tâche, bac à sable JSON en option, repli mémoire. |
 | `local_config.example.py` | Modèle à copier en `local_config.py` (non versionné) pour le vrai mot de passe. |
 | `sample_data/`    | Jeu d'exemple (CSV + dump SQL) pour un essai immédiat.       |
 

@@ -1107,8 +1107,10 @@ class MainWindow(QMainWindow):
                    f"{stats['edges']} links "
                    f"({len(assets)} assets, {len(scenes)} scenes in DB).")
         if restored:
+            layer = self._mute_layer_label()
             message += (f" {restored} muted link(s) restored from the "
-                        f"{self._mutes.label}.")
+                        f"{self._mutes.label}"
+                        + (f" ({layer})." if layer else "."))
         elif not self._mutes_enabled() and self._mutes.available:
             message += (" Mutes stay in memory here (saved from "
                         f"{self._mute_sources_label()} only).")
@@ -1149,11 +1151,16 @@ class MainWindow(QMainWindow):
             return "Mutes stay in memory (no mutes backend configured)."
         scope = ("" if not self._restricted_sources()
                  else f", from {self._mute_sources_label()} only")
+        # La couche employée n'est connue précisément qu'une fois un graphe
+        # affiché ; avant cela on annonce celle que le module permet.
+        layer = self._mute_layer_label() or (
+            "by asset rows" if self._mutes.rows_supported else "by file paths")
         if self._mutes.writes_to_db:
             return (f"Mutes (asset version → scene) are written to the studio "
-                    f"DB{scope}.")
+                    f"DB {layer}{scope}.")
         return (f"Test mode: mutes (asset version → scene) go to "
-                f"{self._mutes.sandbox_file} (studio DB untouched){scope}.")
+                f"{self._mutes.sandbox_file} {layer} (studio DB "
+                f"untouched){scope}.")
 
     def _refresh_tip(self):
         """Rappel des raccourcis sous le graphe, accordé au mode des mutes."""
@@ -1242,63 +1249,123 @@ class MainWindow(QMainWindow):
         """Ouvre le menu du clic droit sur un lien."""
         self._build_edge_menu(edge_key).exec(global_pos)
 
-    def _mute_scene_path(self, edge_key):
-        """(chemin de la scène importatrice, '') ou ('', raison).
+    def _edge_rows(self, edge_key):
+        """{id de couple: ligne brute « assets »} exploitables d'un lien.
+
+        Une ligne n'est retenue que si elle porte de quoi identifier l'asset
+        pour le module — en pratique son ``extension``, seule colonne
+        d'identité facultative (voir ``ds.mute_row_usable``). Une source qui
+        ne la donne pas n'a aucune ligne exploitable : le lien retombera sur
+        la couche par chemins.
+        """
+        rows = self._graph_result.edge_couple_rows.get(edge_key, {})
+        return {cid: row for cid, row in rows.items()
+                if ds.mute_row_usable(row)}
+
+    def _mute_scope(self, edge_key):
+        """(périmètre d'écriture, raison de l'échec).
 
         Le couple muté est (version d'asset, **scène enfant**) : c'est donc
-        le chemin du bas du lien qui compte. Sans chemin, rien n'est
-        enregistrable — les API du module parlent en chemins bruts, on n'en
-        reconstruit jamais.
+        le bas du lien qui décide. On vise sa **tâche** quand tout est
+        réuni — couche « FROM ROWS », sans résolution de chemin donc sans
+        ambiguïté, et avec la version exacte de la ligne. Il manque la
+        tâche ou des lignes identifiables : le **chemin** de la scène
+        reprend la main, comme avant. Ni l'un ni l'autre : rien n'est
+        enregistrable, on ne reconstruit jamais un chemin approximatif.
         """
         result = self._graph_result
         if result is None:
-            return "", "no graph is displayed"
+            return self._mutes.scope(), "no graph is displayed"
         node = result.nodes.get(edge_key[1])
-        scene_path = node.path if node is not None else ""
-        if scene_path:
-            return scene_path, ""
+        task_id = node.task_id if node is not None else None
+        # La couche « rows » exige les DEUX bouts : la tâche de la scène et
+        # des lignes assets identifiables.
+        if not self._edge_rows(edge_key):
+            task_id = None
+        scope = self._mutes.scope(
+            task_id=task_id,
+            scene_path=node.path if node is not None else "")
+        if scope:
+            return scope, ""
         columns = ", ".join(ds._RAW_PATH_COLUMNS[:4]) + "…"
-        return "", (f"table \"scenes\" has no file path column "
-                    f"({columns}) in this source")
+        return scope, (f"table \"scenes\" gives neither task_id nor a file "
+                       f"path column ({columns}) in this source")
 
-    def _couple_paths(self, edge_key, couple_ids=None):
-        """{id de couple: chemin publié} pour les couples demandés.
+    def _mute_targets(self, edge_key, scope, couple_ids=None):
+        """{id de couple: ce qui est passé au module} pour ce périmètre.
 
-        Un chemin par couple, et rien d'autre : c'est le module qui lève les
-        ambiguïtés de dossier, en retenant l'asset qu'une scène **importe
-        vraiment** (``_imported_assets``). Un `.hda` porte légitimement
-        plusieurs assets, et grouper leurs chemins ici muterait celui sur
-        lequel personne n'a cliqué.
+        Sur la couche « rows », la cible est la **ligne brute** de la table
+        ``assets`` : le module n'a plus rien à résoudre, un dossier partagé
+        par deux assets ne le fait plus renoncer, et la version mutée est
+        celle de la ligne au lieu d'être devinée du nom de fichier.
 
-        Un couple sans chemin (source sans colonne dédiée) est absent : il
-        restera mutable en mémoire seulement.
+        Sur la couche par chemins, c'est le chemin publié, un par couple :
+        c'est alors le module qui lève les ambiguïtés, en retenant l'asset
+        qu'une scène **importe vraiment** (``_imported_assets``). Un couple
+        sans cible reste mutable en mémoire seulement.
         """
-        couples = self._graph_result.edge_couples.get(edge_key, ())
         wanted = None if couple_ids is None else set(couple_ids)
+        if scope.layer == "rows":
+            return {cid: row for cid, row in self._edge_rows(edge_key).items()
+                    if wanted is None or cid in wanted}
+        couples = self._graph_result.edge_couples.get(edge_key, ())
         return {cid: path for cid, _l, _v, _lat, _f, path in couples
                 if path and (wanted is None or cid in wanted)}
+
+    def _no_target_reason(self, scope):
+        """Pourquoi aucun couple de ce lien n'est enregistrable."""
+        if scope.layer == "rows":
+            return ("table \"assets\" has no \"extension\" column in this "
+                    "source, so its rows identify nothing.")
+        columns = ", ".join(ds._RAW_PATH_COLUMNS[:4]) + "…"
+        return (f"table \"assets\" has no file path column ({columns}) in "
+                f"this source.")
+
+    def _mute_layers(self):
+        """Couches employées par le graphe affiché : « rows » et/ou « paths »."""
+        result = self._graph_result
+        if result is None or not self._mutes_enabled():
+            return set()
+        layers = set()
+        for edge_key in result.edge_couples:
+            scope, _why = self._mute_scope(edge_key)
+            if scope:
+                layers.add(scope.layer)
+        return layers
+
+    def _mute_layer_label(self):
+        """« by asset rows » / « by file paths » (vide si indéterminé)."""
+        layers = self._mute_layers()
+        if layers == {"rows"}:
+            return "by asset rows"
+        if layers == {"paths"}:
+            return "by file paths"
+        if layers:
+            return "by asset rows and file paths"
+        return ""
 
     def _compute_db_mutes(self, refresh=False):
         """{lien: {couples mutés}} d'après la cible d'écriture.
 
-        Une seule lecture (``get_scene_mutes``) par scène importatrice, quel
-        que soit le nombre de liens qui y aboutissent.
+        Une seule lecture par périmètre : sur la couche « rows » toutes les
+        versions d'une même scène partagent leur tâche, donc une lecture
+        couvre d'un coup tous les liens qui y aboutissent.
         """
         result = self._graph_result
         stored = {}
         refreshed = set()
         for edge_key in result.edge_couples:
-            scene_path, _why = self._mute_scene_path(edge_key)
-            if not scene_path:
+            scope, _why = self._mute_scope(edge_key)
+            if not scope:
                 continue
-            paths = self._couple_paths(edge_key)
-            if not paths:
+            targets = self._mute_targets(edge_key, scope)
+            if not targets:
                 continue
             entries = self._mutes.entries(
-                scene_path, refresh=refresh and scene_path not in refreshed)
-            refreshed.add(scene_path)
-            muted = {cid for cid, path in paths.items()
-                     if self._mutes.is_muted(scene_path, path, entries)}
+                scope, refresh=refresh and scope not in refreshed)
+            refreshed.add(scope)
+            muted = {cid for cid, target in targets.items()
+                     if self._mutes.is_muted(scope, target, entries)}
             if muted:
                 stored[edge_key] = muted
         return stored
@@ -1324,30 +1391,27 @@ class MainWindow(QMainWindow):
     def _couples_mute_backend(self, edge_key, couple_ids, disable):
         """Enregistre le mute/unmute de couples précis ; True si pris en charge.
 
-        Un couple = une **version d'asset** vers la **scène enfant** : un
-        ``mute_asset``/``unmute_asset`` par chemin, avec celui de cette scène
-        — et **tous les chemins du dossier** du couple, que le module ne sait
-        pas distinguer (voir ``_couple_paths``). Après l'écriture la cible est
-        relue (``get_scene_mutes``) : l'affichage reflète ce qu'elle contient
-        vraiment, pas l'intention du clic (consigne du module).
+        Un couple = une **version d'asset** vers la **scène enfant** : une
+        écriture par couple dans le périmètre de cette scène (sa tâche, ou
+        son chemin à défaut — voir ``_mute_scope``). Après l'écriture la
+        cible est relue : l'affichage reflète ce qu'elle contient vraiment,
+        pas l'intention du clic (consigne du module).
         """
         if not self._mutes_enabled():
             self._mute_notice = (
                 "Kept in memory only — mutes are saved from "
                 f"{self._mute_sources_label()} only.")
             return False
-        scene_path, why = self._mute_scene_path(edge_key)
-        if not scene_path:
+        scope, why = self._mute_scope(edge_key)
+        if not scope:
             # Affiché par _on_links_changed, qui suit le basculement local.
             self._mute_notice = f"Kept in memory only — {why}."
             return False
-        paths = self._couple_paths(edge_key, couple_ids)
-        missing = [cid for cid in couple_ids if cid not in paths]
-        if not paths:
-            columns = ", ".join(ds._RAW_PATH_COLUMNS[:4]) + "…"
-            self._mute_notice = (
-                f"Kept in memory only — table \"assets\" has no file path "
-                f"column ({columns}) in this source.")
+        targets = self._mute_targets(edge_key, scope, couple_ids)
+        missing = [cid for cid in couple_ids if cid not in targets]
+        if not targets:
+            self._mute_notice = ("Kept in memory only — "
+                                 + self._no_target_reason(scope))
             return False
         write = self._mutes.mute if disable else self._mutes.unmute
         error = ""
@@ -1355,56 +1419,56 @@ class MainWindow(QMainWindow):
         # pour pouvoir dire POURQUOI un couple n'a pas suivi.
         with self._mutes.capture_messages() as messages:
             try:
-                for path in paths.values():
-                    write(scene_path, path)
+                for target in targets.values():
+                    write(scope, target)
             except Exception as exc:
                 error = str(exc) or exc.__class__.__name__
         self._apply_db_mutes(refresh=True)
-        target = self._mutes.label
+        label = self._mutes.label
         # Vérification couple par couple : un refus ne porte souvent que sur
         # une partie, et rien ne doit être annoncé comme enregistré à tort.
-        refused = self._refused_couples(edge_key, scene_path, paths, disable)
+        refused = self._refused_couples(edge_key, scope, targets, disable)
         if error or refused or missing:
             # Le clic doit malgré tout produire son effet : on rend False pour
             # que la vue mute en mémoire ce qui n'a pas été enregistré.
             self._mute_notice = self._mute_failure_message(
-                target, couple_ids, refused + missing, error, list(messages))
+                label, couple_ids, refused + missing, error, list(messages))
             return False
         verb = "muted" if disable else "unmuted"
         extra = (" — every session will now start with them muted."
                  if disable else ".")
         if messages:
-            # Le module avertit quand il élargit un mute : un « .hda » dont le
-            # nom ne porte pas de version est muté pour TOUTES les versions.
-            # C'est plus large que la ligne cliquée, il faut le dire.
+            # Le module avertit quand il élargit un mute : sur la couche par
+            # chemins, un « .hda » dont le nom ne porte pas de version est
+            # muté pour TOUTES les versions. Plus large que la ligne cliquée,
+            # il faut le dire (la couche « rows » n'a pas ce repli).
             extra = f" — {messages[0]}"
         # Passe par _mute_notice comme les échecs : le rafraîchissement
         # links_changed qui suit écraserait un showMessage direct.
         self._mute_notice = (
-            f"{len(paths)} asset version(s) {verb} in {target} towards "
+            f"{len(targets)} asset version(s) {verb} in {label} towards "
             f"{self._graph_result.nodes[edge_key[1]].display_name}{extra}")
         return True
 
-    def _refused_couples(self, edge_key, scene_path, paths, disable):
+    def _refused_couples(self, edge_key, scope, targets, disable):
         """Libellés des couples dont l'état voulu n'a pas été enregistré."""
         labels = {cid: label for cid, label, _v, _lat, _f, _p
                   in self._graph_result.edge_couples.get(edge_key, ())}
         try:
-            entries = self._mutes.entries(scene_path)
-            return [labels.get(cid, cid) for cid, path in paths.items()
-                    if self._mutes.is_muted(scene_path, path, entries)
-                    != disable]
+            entries = self._mutes.entries(scope)
+            return [labels.get(cid, cid) for cid, target in targets.items()
+                    if self._mutes.is_muted(scope, target, entries) != disable]
         except Exception:
-            return [labels.get(cid, cid) for cid in paths]
+            return [labels.get(cid, cid) for cid in targets]
 
-    def _mute_failure_message(self, target, couple_ids, refused, error,
+    def _mute_failure_message(self, label, couple_ids, refused, error,
                               messages):
         """Explique ce qui n'a pas été enregistré, et si possible pourquoi."""
         head = (f"{len(refused)}/{len(couple_ids)} asset version(s) not "
-                f"recorded in the {target}: {', '.join(refused[:3])}"
+                f"recorded in the {label}: {', '.join(refused[:3])}"
                 + ("…" if len(refused) > 3 else "")
                 if refused else
-                f"The mutes {target} did not record the change")
+                f"The mutes {label} did not record the change")
         # Le clic reste appliqué en mémoire : il faut dire que l'effet est
         # visible mais ne survivra pas à la session.
         tail = " Applied for this session only."

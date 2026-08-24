@@ -1,16 +1,16 @@
-id,name,project,entity_name,task_name,av_name,version,author,path
-100,qua_077_02000_modeling,qua,077_02000,modeling,,5,toto,P:/prods/qua/077_02000/modeling/main/qua_077_02000_modeling_v005.hip
-101,qua_077_02000_modeling,qua,077_02000,modeling,,7,lea,P:/prods/qua/077_02000/modeling/main/qua_077_02000_modeling_v007.hip
-110,qua_077_02000_rigging,qua,077_02000,rigging,,3,ana,P:/prods/qua/077_02000/rigging/main/qua_077_02000_rigging_v003.hip
-120,qua_077_02000_shading,qua,077_02000,shading,,2,bob,P:/prods/qua/077_02000/shading/main/qua_077_02000_shading_v002.hip
-130,qua_077_02000_tracking,qua,077_02000,tracking,,6,lea,P:/prods/qua/077_02000/tracking/main/qua_077_02000_tracking_v006.hip
-140,qua_077_02000_layout,qua,077_02000,layout,,8,max,P:/prods/qua/077_02000/layout/main/qua_077_02000_layout_v008.hip
-150,qua_077_02000_animation,qua,077_02000,animation,,12,max,P:/prods/qua/077_02000/animation/main/qua_077_02000_animation_v012.hip
-151,qua_077_02000_animation,qua,077_02000,animation,,14,jo,P:/prods/qua/077_02000/animation/main/qua_077_02000_animation_v014.hip
-160,qua_077_02000_lighting_main,qua,077_02000,lighting,main,4,kim,P:/prods/qua/077_02000/lighting/main/qua_077_02000_lighting_main_v004.hip
-170,qua_077_02000_compositing,qua,077_02000,compositing,,19,sam,P:/prods/qua/077_02000/compositing/main/qua_077_02000_compositing_v019.hip
-200,qua_077_03000_fx,qua,077_03000,fx,,3,sebastien ginestra,P:/prods/qua/077_03000/fx/main/qua_077_03000_fx_v003.hip
-201,qua_077_03000_fx,qua,077_03000,fx,,5,sebastien ginestra,P:/prods/qua/077_03000/fx/main/qua_077_03000_fx_v005.hip
-210,qua_077_03000_animation,qua,077_03000,animation,,9,max,P:/prods/qua/077_03000/animation/main/qua_077_03000_animation_v009.hip
-220,qua_077_03000_lighting,qua,077_03000,lighting,,2,sebastien ginestra,P:/prods/qua/077_03000/lighting/main/qua_077_03000_lighting_v002.hip
-230,qua_077_03000_compositing,qua,077_03000,compositing,,8,sebastien ginestra,P:/prods/qua/077_03000/compositing/main/qua_077_03000_compositing_v008.hip
+id,name,project,entity_name,task_name,av_name,task_id,version,author,path
+100,qua_077_02000_modeling,qua,077_02000,modeling,,7001,5,toto,P:/prods/qua/077_02000/modeling/main/qua_077_02000_modeling_v005.hip
+101,qua_077_02000_modeling,qua,077_02000,modeling,,7001,7,lea,P:/prods/qua/077_02000/modeling/main/qua_077_02000_modeling_v007.hip
+110,qua_077_02000_rigging,qua,077_02000,rigging,,7002,3,ana,P:/prods/qua/077_02000/rigging/main/qua_077_02000_rigging_v003.hip
+120,qua_077_02000_shading,qua,077_02000,shading,,7003,2,bob,P:/prods/qua/077_02000/shading/main/qua_077_02000_shading_v002.hip
+130,qua_077_02000_tracking,qua,077_02000,tracking,,7004,6,lea,P:/prods/qua/077_02000/tracking/main/qua_077_02000_tracking_v006.hip
+140,qua_077_02000_layout,qua,077_02000,layout,,7005,8,max,P:/prods/qua/077_02000/layout/main/qua_077_02000_layout_v008.hip
+150,qua_077_02000_animation,qua,077_02000,animation,,7006,12,max,P:/prods/qua/077_02000/animation/main/qua_077_02000_animation_v012.hip
+151,qua_077_02000_animation,qua,077_02000,animation,,7006,14,jo,P:/prods/qua/077_02000/animation/main/qua_077_02000_animation_v014.hip
+160,qua_077_02000_lighting_main,qua,077_02000,lighting,main,7007,4,kim,P:/prods/qua/077_02000/lighting/main/qua_077_02000_lighting_main_v004.hip
+170,qua_077_02000_compositing,qua,077_02000,compositing,,7008,19,sam,P:/prods/qua/077_02000/compositing/main/qua_077_02000_compositing_v019.hip
+200,qua_077_03000_fx,qua,077_03000,fx,,7009,3,sebastien ginestra,P:/prods/qua/077_03000/fx/main/qua_077_03000_fx_v003.hip
+201,qua_077_03000_fx,qua,077_03000,fx,,7009,5,sebastien ginestra,P:/prods/qua/077_03000/fx/main/qua_077_03000_fx_v005.hip
+210,qua_077_03000_animation,qua,077_03000,animation,,7010,9,max,P:/prods/qua/077_03000/animation/main/qua_077_03000_animation_v009.hip
+220,qua_077_03000_lighting,qua,077_03000,lighting,,7011,2,sebastien ginestra,P:/prods/qua/077_03000/lighting/main/qua_077_03000_lighting_v002.hip
+230,qua_077_03000_compositing,qua,077_03000,compositing,,7012,8,sebastien ginestra,P:/prods/qua/077_03000/compositing/main/qua_077_03000_compositing_v008.hip

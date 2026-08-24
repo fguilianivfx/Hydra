@@ -185,7 +185,7 @@ class SceneNode:
     __slots__ = (
         "key", "project", "entity_name", "task_name", "av_name", "version",
         "node_names", "outputs", "inputs", "artists", "scene_names", "path",
-        "is_start", "status", "display_name", "row", "col",
+        "task_id", "is_start", "status", "display_name", "row", "col",
     )
 
     def __init__(self, key, project, entity_name, task_name, av_name, version):
@@ -201,6 +201,7 @@ class SceneNode:
         self.artists = []          # graphistes ayant publié cette scène
         self.scene_names = []      # noms bruts des lignes scenes (pour survol)
         self.path = ""             # chemin du fichier scène (mutes persistants)
+        self.task_id = None        # tâche de la scène (mutes « FROM ROWS »)
         self.is_start = False
         # "ok" (vert) | "inherited" (orange) | "stale" (rouge)
         self.status = "ok"
@@ -216,7 +217,8 @@ class GraphResult:
                  "separator_after_row", "stats",
                  "edge_assets", "edge_details", "stale_asset_ids",
                  "stale_edges", "edge_formats", "formats",
-                 "output_consumers", "edge_couples", "output_couples")
+                 "output_consumers", "edge_couples", "edge_couple_rows",
+                 "output_couples")
 
     def __init__(self):
         self.nodes = {}            # key -> SceneNode
@@ -250,10 +252,15 @@ class GraphResult:
         # Couples (version d'asset, scène) portés par chaque lien — l'unité
         # que l'on mute : (top, bottom) -> ((id, libellé, version, dernière
         # version, format, chemin), …). L'``id`` identifie une VERSION précise
-        # (le chemin publié quand la source le donne), car deux versions d'un
-        # même flux partagent leur libellé. La scène du couple est celle du
-        # bas du lien (l'importatrice), dont le chemin est sur le nœud.
+        # (chemin publié + version, ou libellé + version), car ni le libellé
+        # ni le chemin ne séparent seuls deux versions. La scène du couple
+        # est celle du bas du lien (l'importatrice), dont la tâche et le
+        # chemin sont portés par le nœud.
         self.edge_couples = {}
+        # Ligne brute « assets » de chaque couple, pour la couche « FROM
+        # ROWS » du module de mutes : (top, bottom) -> {id du couple: ligne}.
+        # Tenue à part du tuple d'affichage ci-dessus, qui reste lisible.
+        self.edge_couple_rows = {}
 
 
 # ---------------------------------------------------------------------------
@@ -547,10 +554,14 @@ def build_graph(assets, scenes, binds, input_name):
         node.display_name = _display_title(node, prefix)
 
     # Couples (version d'asset, scène) de chaque lien : l'unité que l'on mute.
-    result.edge_couples = {
+    couples_by_edge = {
         edge: _edge_couples(aids, assets, asset_stream_max, raw_scene_names)
         for edge, aids in result.edge_assets.items()
     }
+    result.edge_couples = {edge: couples
+                           for edge, (couples, _raw) in couples_by_edge.items()}
+    result.edge_couple_rows = {edge: raw
+                               for edge, (_c, raw) in couples_by_edge.items()}
     # Détail affiché (info-bulle, fenêtre de lien) : même contenu, sans l'id
     # ni le chemin, dédoublonné.
     result.edge_details = {
@@ -731,6 +742,7 @@ def _fill_scene_meta(node, scenes_by_iv, scenes):
     """
     names, artists = [], []
     path = ""
+    task_id = None
     for sid in scenes_by_iv.get(node.key, ()):
         s = scenes.get(sid, {})
         raw = s.get("name", "")
@@ -742,9 +754,14 @@ def _fill_scene_meta(node, scenes_by_iv, scenes):
             artists.append(artist)
         if not path:
             path = s.get("path", "")
+        # Toutes les lignes d'un nœud décrivent la même version de la même
+        # scène : elles partagent leur tâche, la première renseignée suffit.
+        if task_id is None:
+            task_id = s.get("task_id")
     node.scene_names = names
     node.artists = artists
     node.path = path
+    node.task_id = task_id
 
 
 def _display_title(node, prefix):
@@ -807,23 +824,28 @@ def _input_is_stale(asset, asset_stream_max):
 def couple_id(path, label, version):
     """Identifiant d'un couple (version d'asset, scène).
 
-    Le chemin publié identifie une version sans ambiguïté ; quand la source
-    n'en fournit pas, on retombe sur « libellé|vNNN » — deux versions d'un
-    même flux partagent leur libellé, la version est donc indispensable.
+    Le chemin publié situe l'asset ; le libellé prend le relais quand la
+    source n'en donne pas. Ni l'un ni l'autre ne suffit seul : deux versions
+    d'un même flux partagent leur libellé, et une bibliothèque republiée
+    au même endroit (une matlib ``.hda``) partage jusqu'à son chemin. Sans
+    la version en suffixe, ces versions se confondraient en un seul couple,
+    dont une seule serait réellement mutable.
     """
-    if path:
-        return str(path).replace("\\", "/").strip().lower()
-    return f"{label}|v{version if version is not None else '?'}"
+    base = (str(path).replace("\\", "/").strip().lower() if path else label)
+    return f"{base}|v{version if version is not None else '?'}"
 
 
 def _edge_couples(asset_ids, assets, asset_stream_max,
                   scene_names_by_key=None):
-    """[(id, label, version, latest, format, path)] trié, pour des assets.
+    """(couples triés, {id: ligne brute}) pour un ensemble d'assets.
 
-    Une entrée = une **version** d'asset, l'unité que l'on mute vers la scène
-    qui l'importe.
+    Un couple = une **version** d'asset, l'unité que l'on mute vers la scène
+    qui l'importe : ``(id, label, version, latest, format, path)``. La ligne
+    brute de la table ``assets`` l'accompagne à part — c'est elle que la
+    couche « FROM ROWS » du module de mutes attend, et elle n'a rien à faire
+    dans un tuple d'affichage.
     """
-    rows = {}
+    rows, raw = {}, {}
     for aid in asset_ids:
         a = assets.get(aid)
         if a is None:
@@ -836,8 +858,11 @@ def _edge_couples(asset_ids, assets, asset_stream_max,
         rows[cid] = (cid, label, a["version"],
                      asset_stream_max.get(stream, a["version"]),
                      a.get("format", ""), path)
-    return tuple(sorted(rows.values(),
-                        key=lambda r: (r[1], r[2] if r[2] is not None else -1)))
+        raw[cid] = a.get("mute_row") or {}
+    couples = tuple(sorted(
+        rows.values(),
+        key=lambda r: (r[1], r[2] if r[2] is not None else -1)))
+    return couples, raw
 
 
 def recompute_status(result, disabled_edges=()):

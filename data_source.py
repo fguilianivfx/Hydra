@@ -5,10 +5,10 @@ structures en mémoire, quelle que soit la provenance des données :
 
     assets : dict[int, dict]
         clés du dict interne : project, entity_name, task_name, av_name,
-        node_name, version (int | None)
+        node_name, version (int | None), mute_row (ligne brute)
     scenes : dict[int, dict]
         clés du dict interne : project, entity_name, task_name, av_name,
-        version (int | None), name
+        version (int | None), name, task_id (int | None)
     binds  : list[tuple]
         (asset_id: int, scene_id: int, active: str | int)
 
@@ -110,7 +110,54 @@ def _asset_from_mapping(get, date_column="", format_spec=("", "")):
         "format": _asset_format(get, format_spec),
         # Chemin publié : sert au mute persistant (module Kraken).
         "path": row_path(get),
+        # Ligne brute pour la couche « FROM ROWS » du module de mutes.
+        "mute_row": mute_row(get),
     }
+
+
+# Identité d'un asset pour le module de mutes : son MUTE_FIELDS.
+MUTE_ROW_IDENTITY = ("project", "entity_name", "task_name", "av_name",
+                     "node_name", "extension")
+# Ce qu'on lui transmet en plus : la version — qui n'a ainsi plus à être
+# devinée depuis le nom de fichier — et l'id de la ligne elle-même.
+MUTE_ROW_FIELDS = ("id",) + MUTE_ROW_IDENTITY + ("version",)
+
+
+def mute_row(get):
+    """Valeurs BRUTES des colonnes que le module de mutes identifie.
+
+    Rien n'est normalisé ici, volontairement : le module lit la même table
+    ``assets`` que nous, la comparaison se fait donc sur ce que
+    ``get_infoasset()`` y a écrit. Normaliser (retirer le point de
+    « .hda », passer en minuscules) fabriquerait une valeur qui ne
+    correspond plus à aucune ligne.
+
+    Seule exception, les champs d'identité : NULL y devient '' plutôt que de
+    disparaître du dict. Un asset sans ``av_name`` en a un vide, ce n'est
+    pas un asset incomplet — et une clé manquante laisserait le module
+    appliquer son propre défaut.
+    """
+    row = {}
+    for name in MUTE_ROW_FIELDS:
+        value = get(name)
+        if value is None or str(value).strip().upper() == "NULL":
+            if name in MUTE_ROW_IDENTITY:
+                row[name] = ""
+            continue
+        row[name] = value
+    return row
+
+
+def mute_row_usable(row):
+    """Vrai si cette ligne brute suffit à identifier l'asset pour le module.
+
+    Les cinq premiers champs d'identité sont des colonnes OBLIGATOIRES de la
+    table ``assets`` (voir ``REQUIRED_COLUMNS``) : elles sont toujours là.
+    L'``extension``, elle, est facultative — et c'est elle qui sépare deux
+    exports d'un même node (un ``.hda`` et un ``.bgeo.sc``). Sans elle, la
+    ligne n'identifie rien de sûr : le lien retombe sur les chemins.
+    """
+    return bool(row) and bool(str(row.get("extension", "")).strip())
 
 
 # Colonnes possibles pour le graphiste ayant publié la scène (facultatif).
@@ -351,8 +398,12 @@ def _scene_from_mapping(get):
         "av_name": norm_str(get("av_name")),
         "version": to_int(get("version")),
         "artist": _pick(get, _ARTIST_COLUMNS),
-        # Chemin du fichier scène : c'est lui que les API de mutes attendent.
+        # Chemin du fichier scène : attendu par la couche « par chemins » des
+        # mutes, et seul repli quand la tâche n'est pas identifiée.
         "path": row_path(get),
+        # Tâche de la scène : clé de la couche « FROM ROWS », qui mute sans
+        # avoir à faire résoudre un chemin par le module.
+        "task_id": to_int(get("task_id")),
     }
 
 

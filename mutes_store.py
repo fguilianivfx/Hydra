@@ -1,8 +1,39 @@
 """Persistance des liens muted : bac à sable de test, ou base du studio.
 
 La base enregistre les assets « muted » par tâche, à travers
-``dd.utils.assets_mutes`` fourni par Kraken. Dedale n'utilise que les CINQ
-fonctions prévues pour un outil interactif :
+``dd.utils.assets_mutes`` fourni par Kraken. Le module offre DEUX couches
+pour un outil interactif ; Dedale préfère la première et retombe sur la
+seconde quand elle n'est pas utilisable.
+
+COUCHE « FROM ROWS » (préférée) — l'outil fournit lui-même les lignes des
+tables de suivi, ce que fait Dedale, qui les a déjà toutes en mémoire :
+
+    get_task_mutes(scene_task_id)        -> list
+    is_asset_muted(asset, entries)       -> bool
+    mute_asset_row(scene_task_id, asset) -> bool
+    unmute_asset_row(scene_task_id, asset) -> bool
+
+Deux gains décisifs sur la couche par chemins :
+
+* **aucune résolution de chemin**, donc plus aucune ambiguïté possible. Un
+  dossier partagé par deux assets (un ``.hda`` de bibliothèque et
+  l'opérateur importé) faisait renoncer le module, faute de savoir lequel
+  viser ; la ligne, elle, ne se confond avec rien ;
+* **la version est celle de la ligne**, pas celle devinée du nom de
+  fichier. Un ``.hda`` dont le nom ne porte pas de version était muté pour
+  TOUTES les versions (repli ``ALL_VERSIONS``) : ici la version importée
+  est mutée, et elle seule.
+
+Les valeurs passées au module sont celles de la base, **non normalisées**
+(voir ``data_source.mute_row``) : le module lit la même table ``assets`` que
+nous, la correspondance est donc exacte par construction, quelle que soit la
+convention d'écriture des colonnes — le point de « .hda » compris. C'est
+pourquoi la valeur normalisée par l'outil (« hda ») ne doit jamais sortir
+d'ici : elle ne correspondrait à aucune ligne.
+
+COUCHE PAR CHEMINS (repli) — quand le module installé n'expose pas la
+première, ou quand la source chargée ne donne ni ``scenes.task_id`` ni
+l'``extension`` des assets (un CSV réduit, par exemple) :
 
     get_scene_mutes(scene_path)                               -> list
     is_asset_path_muted(scene_path, asset_path, entries=None) -> bool
@@ -10,27 +41,19 @@ fonctions prévues pour un outil interactif :
     unmute_asset(scene_path, asset_path)                      -> bool
     unmute_scene(scene_path)                                  -> bool
 
-Tout se parle en chemins bruts (fichier de la scène ouverte, fichier publié
-de l'asset) : pas d'id à chercher, pas de casse à gérer, pas de séquence à
-reconstruire — la normalisation est faite dans ces fonctions. Après chaque
-écriture, ``get_scene_mutes`` est relu pour que l'interface reflète la base
-(consigne du développeur du module).
+Tout s'y parle en chemins bruts : pas d'id à chercher, pas de casse à
+gérer — la normalisation est faite dans ces fonctions.
 
-Ce que le module garantit, et dont Dedale dépend :
+Ce que les deux couches partagent, et dont Dedale dépend :
 
-* ``mute_asset`` vise par défaut **la version que le chemin désigne** —
-  exactement l'unité que l'outil manipule (couple version d'asset → scène).
-  ``all_versions=True`` muterait toute la famille ; on ne l'utilise pas.
-* un chemin portant **plusieurs** assets (un ``.hda`` tient la bibliothèque
-  publiée *et* l'opérateur importé) est désambiguïsé par le module, qui
-  retient celui qu'une scène **importe réellement**. Rien à grouper de notre
-  côté : le faire muterait l'asset sur lequel personne n'a cliqué.
-* les entrées de ``get_scene_mutes`` sont des n-uplets **opaques** : jamais
-  inspectées ici, seulement repassées à ``is_asset_path_muted``. C'est ce qui
-  a rendu indolore leur passage de 2 à 3 valeurs.
-* ``get_scene_mutes`` préchauffe aussi le cache de résolution du module pour
-  toute la tâche : une lecture par scène, puis des vérifications en mémoire —
-  d'où le cache par scène ci-dessous.
+* après chaque écriture, la lecture est refaite pour que l'interface
+  reflète la base et non l'intention du clic (consigne du développeur) ;
+* les entrées rendues sont des n-uplets **opaques** : jamais inspectées
+  ici, seulement repassées au test d'appartenance. C'est ce qui a rendu
+  indolore leur passage de 2 à 3 valeurs ;
+* la lecture préchauffe le cache de résolution du module pour toute la
+  tâche : une lecture par tâche, puis des vérifications en mémoire — d'où
+  le cache ci-dessous ;
 * ``clear_resolution_caches`` (facultative) oublie ces résolutions ; Dedale
   l'appelle à chaque nouveau graphe, au cas où la base aurait été corrigée.
 
@@ -57,6 +80,7 @@ sinon ``~/.dedale/mutes_sandbox.json`` ; le supprimer remet l'essai à zéro.
 """
 
 import contextlib
+import inspect
 import json
 import logging
 import os
@@ -109,14 +133,70 @@ def default_sandbox_file():
                             "mutes_sandbox.json"))
 
 
+# Les deux couches du module, par leurs fonctions. La première l'emporte dès
+# que le module installé les expose toutes les quatre.
+ROW_FUNCTIONS = ("get_task_mutes", "is_asset_muted", "mute_asset_row",
+                 "unmute_asset_row")
+PATH_FUNCTIONS = ("get_scene_mutes", "is_asset_path_muted", "mute_asset",
+                  "unmute_asset", "unmute_scene")
+
+
+def _takes_scope(fn):
+    """Vrai si ``is_asset_muted`` attend la tâche avant l'asset.
+
+    La signature documentée est ``is_asset_muted(asset, entries)``. Le
+    module vit sur le poste du studio et peut évoluer : plutôt que de figer
+    une variante, on lit la signature réellement installée. Trois
+    paramètres positionnels ou plus = la tâche est attendue en tête.
+    """
+    try:
+        params = [p for p in inspect.signature(fn).parameters.values()
+                  if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+    except (TypeError, ValueError):    # pragma: no cover - builtin/C
+        return False
+    return len(params) >= 3
+
+
+class MuteScope:
+    """Ce à quoi un mute est rattaché : une tâche, ou un chemin de scène.
+
+    ``layer`` vaut ``"rows"`` (clé = ``scenes.task_id``) ou ``"paths"``
+    (clé = chemin du fichier scène). L'objet sert aussi de clé de cache :
+    deux versions d'une même scène partagent leur tâche, donc une seule
+    lecture pour toutes.
+    """
+
+    __slots__ = ("layer", "key")
+
+    def __init__(self, layer, key):
+        self.layer = layer
+        self.key = key
+
+    def __bool__(self):
+        """Faux quand rien n'identifie la cible : rien n'est enregistrable."""
+        return self.key is not None and self.key != ""
+
+    def __eq__(self, other):
+        return (isinstance(other, MuteScope) and self.layer == other.layer
+                and self.key == other.key)
+
+    def __hash__(self):
+        return hash((self.layer, self.key))
+
+    def __repr__(self):                # pragma: no cover - confort de debug
+        return f"MuteScope({self.layer!r}, {self.key!r})"
+
+
 class SandboxMutes:
     """Bac à sable : même contrat que le module, dans un fichier JSON.
 
-    Sert à essayer le mécanisme sans écrire dans la base du studio. La
-    normalisation imite l'esprit du module (tâche = dossier du fichier
-    scène, chemins insensibles à la casse et au sens des séparateurs) mais
-    reste **une approximation** : elle valide le fonctionnement de l'outil,
-    pas les règles de correspondance internes de Kraken.
+    Sert à essayer le mécanisme sans écrire dans la base du studio. Les deux
+    couches y sont reproduites : « FROM ROWS » (clé = tâche, entrée =
+    identité de la ligne asset) et par chemins. La normalisation imite
+    l'esprit du module (tâche = dossier du fichier scène, chemins
+    insensibles à la casse et au sens des séparateurs) mais reste **une
+    approximation** : elle valide le fonctionnement de l'outil, pas les
+    règles de correspondance internes de Kraken.
     """
 
     def __init__(self, path):
@@ -185,9 +265,51 @@ class SandboxMutes:
         self._save(data)
         return True
 
+    # --- couche « FROM ROWS » ----------------------------------------------
+    # L'identité d'une ligne asset = MUTE_FIELDS + la version, telle que le
+    # module la lit. Elle est sérialisée en texte pour tenir dans le JSON.
+    _ROW_KEYS = ("project", "entity_name", "task_name", "av_name",
+                 "node_name", "extension", "version")
+
+    @classmethod
+    def _row_key(cls, asset):
+        return "|".join(str(asset.get(k, "")) for k in cls._ROW_KEYS)
+
+    @staticmethod
+    def _rows_task(task_id):
+        """Clé de tâche distincte de celle des chemins (pas de collision)."""
+        return f"task:{task_id}"
+
+    def get_task_mutes(self, task_id):
+        return list(self._load().get(self._rows_task(task_id), []))
+
+    def is_asset_muted(self, asset, entries):
+        return self._row_key(asset) in set(entries or ())
+
+    def mute_asset_row(self, task_id, asset):
+        data = self._load()
+        task, entry = self._rows_task(task_id), self._row_key(asset)
+        entries = data.setdefault(task, [])
+        if entry in entries:
+            return False
+        entries.append(entry)
+        self._save(data)
+        return True
+
+    def unmute_asset_row(self, task_id, asset):
+        data = self._load()
+        task, entry = self._rows_task(task_id), self._row_key(asset)
+        if entry not in data.get(task, []):
+            return False
+        data[task].remove(entry)
+        if not data[task]:
+            del data[task]
+        self._save(data)
+        return True
+
 
 class MutesStore:
-    """Cache + garde-fous autour des cinq fonctions autorisées."""
+    """Cache + garde-fous autour des fonctions autorisées du module."""
 
     def __init__(self, target=None, sandbox_file=None):
         self._target = (target or default_target()).lower()
@@ -195,8 +317,10 @@ class MutesStore:
         self._api = None
         self._mode = ""          # "sandbox" | "kraken" | "" (indisponible)
         self._error = ""
-        self._entries = {}       # scene_path -> liste rendue par get_scene_mutes
+        self._entries = {}       # MuteScope -> entrées rendues par la lecture
         self._clear_caches = None
+        self._rows = False       # couche « FROM ROWS » disponible
+        self._scoped_test = False  # is_asset_muted attend-elle la tâche ?
         if self._target == "db":
             self._use_kraken()
         else:
@@ -205,9 +329,9 @@ class MutesStore:
     # -------------------------------------------------------- backends -----
     def _use_sandbox(self):
         sandbox = SandboxMutes(self._sandbox_file)
-        self._api = {name: getattr(sandbox, name) for name in (
-            "get_scene_mutes", "is_asset_path_muted", "mute_asset",
-            "unmute_asset", "unmute_scene")}
+        self._api = {name: getattr(sandbox, name)
+                     for name in PATH_FUNCTIONS + ROW_FUNCTIONS}
+        self._rows = True
         self._mode = "sandbox"
 
     def _use_kraken(self):
@@ -216,15 +340,17 @@ class MutesStore:
             if os.path.isdir(path) and path not in sys.path:
                 sys.path.insert(0, path)
             from dd.utils import assets_mutes as api
-            # On ne référence QUE les cinq fonctions autorisées : le reste du
-            # module appartient à la tâche cron (voir l'en-tête du fichier).
-            self._api = {
-                "get_scene_mutes": api.get_scene_mutes,
-                "is_asset_path_muted": api.is_asset_path_muted,
-                "mute_asset": api.mute_asset,
-                "unmute_asset": api.unmute_asset,
-                "unmute_scene": api.unmute_scene,
-            }
+            # On ne référence QUE les fonctions des deux couches interactives :
+            # le reste du module appartient à la tâche cron (voir l'en-tête).
+            self._api = {name: getattr(api, name) for name in PATH_FUNCTIONS}
+            # Couche « FROM ROWS » : préférée, mais seulement si le module
+            # installé l'expose EN ENTIER. Une installation plus ancienne
+            # continue de fonctionner par les chemins, sans rien casser.
+            if all(callable(getattr(api, name, None)) for name in ROW_FUNCTIONS):
+                self._api.update({name: getattr(api, name)
+                                  for name in ROW_FUNCTIONS})
+                self._scoped_test = _takes_scope(self._api["is_asset_muted"])
+                self._rows = True
             # Facultatif : le module mémorise les résolutions chemin -> tâche
             # et chemin -> asset. Ce sont des faits immuables, mais ils
             # cessent de l'être quand la base est corrigée sous nos pieds :
@@ -234,6 +360,7 @@ class MutesStore:
         except Exception as exc:      # module absent, cassé ou incomplet
             self._api = None
             self._mode = ""
+            self._rows = False
             self._error = str(exc) or exc.__class__.__name__
 
     # ----------------------------------------------------------- état ------
@@ -263,6 +390,11 @@ class MutesStore:
         return "memory"
 
     @property
+    def rows_supported(self):
+        """Vrai si la couche « FROM ROWS » du module est disponible ici."""
+        return self._rows
+
+    @property
     def sandbox_file(self):
         return self._sandbox_file
 
@@ -275,20 +407,50 @@ class MutesStore:
         """Vrai si une installation Kraken semble présente sur ce poste."""
         return os.path.isdir(kraken_path())
 
-    # ------------------------------------------------------------- lecture --
-    def entries(self, scene_path, refresh=False):
-        """Mutes de la tâche de cette scène (relus si ``refresh``)."""
-        if refresh or scene_path not in self._entries:
-            got = self._api["get_scene_mutes"](scene_path)
-            self._entries[scene_path] = list(got) if got else []
-        return self._entries[scene_path]
+    # -------------------------------------------------------- périmètre ----
+    def scope(self, task_id=None, scene_path=""):
+        """Périmètre d'écriture pour une scène : « rows » si possible.
 
-    def is_muted(self, scene_path, asset_path, entries=None):
-        """Vrai si cet asset est muted pour la tâche de cette scène."""
+        La tâche l'emporte sur le chemin dès que les deux sont connus : elle
+        évite au module toute résolution, donc toute ambiguïté. Sans tâche
+        (module ancien, ou source sans colonne ``task_id``), le chemin
+        reprend la main ; sans l'un ni l'autre, le périmètre est faux et
+        rien n'est enregistrable.
+        """
+        if self._rows and task_id is not None:
+            return MuteScope("rows", task_id)
+        return MuteScope("paths", scene_path or "")
+
+    # ------------------------------------------------------------- lecture --
+    def entries(self, scope, refresh=False):
+        """Mutes enregistrés pour ce périmètre (relus si ``refresh``).
+
+        Une lecture par tâche : toutes les versions d'une même scène la
+        partagent, et elle préchauffe le cache de résolution du module.
+        """
+        if refresh or scope not in self._entries:
+            if scope.layer == "rows":
+                got = self._api["get_task_mutes"](scope.key)
+            else:
+                got = self._api["get_scene_mutes"](scope.key)
+            self._entries[scope] = list(got) if got else []
+        return self._entries[scope]
+
+    def is_muted(self, scope, target, entries=None):
+        """Vrai si cet asset est muted dans ce périmètre.
+
+        ``target`` est la **ligne brute** de la table ``assets`` sur la
+        couche « rows », et le chemin publié sur la couche par chemins.
+        """
         if entries is None:
-            entries = self.entries(scene_path)
+            entries = self.entries(scope)
+        if scope.layer == "rows":
+            test = self._api["is_asset_muted"]
+            if self._scoped_test:
+                return bool(test(scope.key, target, entries))
+            return bool(test(target, entries))
         return bool(self._api["is_asset_path_muted"](
-            scene_path, asset_path, entries))
+            scope.key, target, entries))
 
     def clear_cache(self):
         """Oublie nos entrées **et** les résolutions mémorisées du module."""
@@ -317,11 +479,16 @@ class MutesStore:
         finally:
             logger.removeHandler(catcher)
 
-    def mute(self, scene_path, asset_path):
-        return bool(self._api["mute_asset"](scene_path, asset_path))
+    def mute(self, scope, target):
+        """Mute un asset dans ce périmètre (ligne brute, ou chemin publié)."""
+        if scope.layer == "rows":
+            return bool(self._api["mute_asset_row"](scope.key, target))
+        return bool(self._api["mute_asset"](scope.key, target))
 
-    def unmute(self, scene_path, asset_path):
-        return bool(self._api["unmute_asset"](scene_path, asset_path))
+    def unmute(self, scope, target):
+        if scope.layer == "rows":
+            return bool(self._api["unmute_asset_row"](scope.key, target))
+        return bool(self._api["unmute_asset"](scope.key, target))
 
     def unmute_scene(self, scene_path):
         """Tout réafficher pour la tâche de cette scène (pas branché en UI)."""
